@@ -73,6 +73,7 @@ import {
   Trash2,
   ListChecks,
   Database,
+  ArrowUpFromLine,
   Tag,
 } from "lucide-react";
 
@@ -779,7 +780,7 @@ function categoriesClient(c) {
   return cats.length ? cats.join(", ") : "—";
 }
 
-function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, onNouveauContact, statutForce }) {
+function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, onNouveauContact, onImportContacts, importMessage, onClearImportMessage, statutForce }) {
   const [queryBesoin, setQueryBesoin] = useState("");
 
   const filtered = clients.filter((c) => {
@@ -845,13 +846,48 @@ function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, on
       </div>
 
       {onNouveauContact && (
-        <button
-          onClick={onNouveauContact}
-          className="w-full flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
-          style={{ background: ink.rouge, color: "#fff" }}
+        <div className="flex gap-2">
+          <button
+            onClick={onNouveauContact}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
+            style={{ background: ink.rouge, color: "#fff" }}
+          >
+            <Plus size={15} /> Nouveau contact
+          </button>
+          {onImportContacts && (
+            <label
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold cursor-pointer"
+              style={{ background: ink.panel, border: `1px solid ${ink.line}`, color: ink.ink900 }}
+            >
+              <ArrowUpFromLine size={15} /> Importer
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportContacts(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          )}
+        </div>
+      )}
+
+      {importMessage && (
+        <div
+          className="rounded-2xl px-3 py-2.5 text-xs font-medium flex items-center justify-between gap-2"
+          style={{
+            background: importMessage.type === "succes" ? "rgba(95,168,91,0.15)" : `${ink.rouge}1A`,
+            color: importMessage.type === "succes" ? "#5FA85B" : ink.rouge,
+          }}
         >
-          <Plus size={15} /> Nouveau contact
-        </button>
+          <span>{importMessage.texte}</span>
+          <button onClick={onClearImportMessage}>
+            <X size={13} />
+          </button>
+        </div>
       )}
 
       <div className="space-y-3">
@@ -1599,7 +1635,7 @@ function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, 
 // ---------------------------------------------------------------------------
 // Vue : Base de données clients (admin) — filtres article / période / CA
 // ---------------------------------------------------------------------------
-function BaseClients({ clients, categories, onSelect }) {
+function BaseClients({ clients, categories, onSelect, onImportContacts, importMessage, onClearImportMessage }) {
   const [query, setQuery] = useState("");
   const [filtreArticle, setFiltreArticle] = useState("tous");
   const [periode, setPeriode] = useState("an");
@@ -1623,8 +1659,71 @@ function BaseClients({ clients, categories, onSelect }) {
     return true;
   });
 
+  function exporterExcel() {
+    const wb = XLSX.utils.book_new();
+    const lignes = filtres.map((c) => ({
+      "N° client": c.id,
+      Nom: c.nom,
+      Type: c.type,
+      Statut: c.statut,
+      Téléphone: c.telephone,
+      Source: c.source,
+      "Date d'entrée": c.dateEntree,
+      Besoin: c.besoin || "",
+      "Articles commandés": categoriesClient(c),
+      "Total facturé (F)": totalClient(c),
+      "Nombre de commandes": c.commandes.length,
+    }));
+    const ws = XLSX.utils.json_to_sheet(lignes);
+    XLSX.utils.book_append_sheet(wb, ws, "Contacts");
+    XLSX.writeFile(wb, `contacts-le-serigraphe-${AUJOURD_HUI.toISOString().slice(0, 10)}.xlsx`);
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex gap-2">
+        {onImportContacts && (
+          <label
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold cursor-pointer"
+            style={{ background: ink.panel, border: `1px solid ${ink.line}`, color: ink.ink900 }}
+          >
+            <ArrowUpFromLine size={15} /> Importer
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onImportContacts(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        )}
+        <button
+          onClick={exporterExcel}
+          className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
+          style={{ background: ink.ochre, color: "#fff" }}
+        >
+          <FileBarChart size={15} /> Exporter ({filtres.length})
+        </button>
+      </div>
+
+      {importMessage && (
+        <div
+          className="rounded-2xl px-3 py-2.5 text-xs font-medium flex items-center justify-between gap-2"
+          style={{
+            background: importMessage.type === "succes" ? "rgba(95,168,91,0.15)" : `${ink.rouge}1A`,
+            color: importMessage.type === "succes" ? "#5FA85B" : ink.rouge,
+          }}
+        >
+          <span>{importMessage.texte}</span>
+          <button onClick={onClearImportMessage}>
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
       <div
         className="flex items-center gap-2 rounded-2xl px-3 py-2"
         style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
@@ -2640,6 +2739,7 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   const [editMontant, setEditMontant] = useState(String(cmd.montant));
   const [editMontantPaye, setEditMontantPaye] = useState(String(cmd.montantPaye));
   const [editCategorie, setEditCategorie] = useState(cmd.categorie || "");
+  const [confirmSupp, setConfirmSupp] = useState(false);
   const statutP = statutPaiement(cmd);
   const reste = cmd.montant - cmd.montantPaye;
   const couts = cmd.couts || [];
@@ -2665,10 +2765,9 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   }
 
   function supprimer() {
-    if (window.confirm(`Supprimer la commande "${cmd.description}" ?`)) {
-      onDelete(clientId, cmd.id);
-    }
+    onDelete(clientId, cmd.id);
   }
+
 
   if (editOuvert) {
     return (
@@ -2756,13 +2855,32 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
         >
           Modifier
         </button>
-        <button
-          onClick={supprimer}
-          className="text-[11px] font-semibold px-2.5 py-1.5 rounded-2xl flex items-center gap-1"
-          style={{ background: "transparent", color: ink.rouge, border: `1px solid ${ink.rouge}` }}
-        >
-          <Trash2 size={11} /> Supprimer
-        </button>
+        {!confirmSupp ? (
+          <button
+            onClick={() => setConfirmSupp(true)}
+            className="text-[11px] font-semibold px-2.5 py-1.5 rounded-2xl flex items-center gap-1"
+            style={{ background: "transparent", color: ink.rouge, border: `1px solid ${ink.rouge}` }}
+          >
+            <Trash2 size={11} /> Supprimer
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={supprimer}
+              className="text-[11px] font-bold px-2.5 py-1.5 rounded-2xl"
+              style={{ background: ink.rouge, color: "#fff" }}
+            >
+              Confirmer la suppression
+            </button>
+            <button
+              onClick={() => setConfirmSupp(false)}
+              className="text-[11px] font-semibold px-2.5 py-1.5 rounded-2xl"
+              style={{ background: ink.canvasDeep, color: ink.ink600 }}
+            >
+              Annuler
+            </button>
+          </>
+        )}
       </div>
 
       {ouvert && (
@@ -2793,7 +2911,7 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   );
 }
 
-function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout, onSolderCommande, onEditCommande, onDeleteCommande, templates, onRelance, categories, onAddCategorie, onSetDeadlineEtape }) {
+function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout, onSolderCommande, onEditCommande, onDeleteCommande, templates, onRelance, categories, onAddCategorie, onSetDeadlineEtape, onEditClient, onDeleteClient }) {
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
   const [desc, setDesc] = useState("");
   const [montant, setMontant] = useState("");
@@ -2801,6 +2919,30 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
   const [categorieChoisie, setCategorieChoisie] = useState("");
   const [relanceOuverte, setRelanceOuverte] = useState(false);
   const [copieId, setCopieId] = useState(null);
+  const [editClientOuvert, setEditClientOuvert] = useState(false);
+  const [editNom, setEditNom] = useState(client.nom);
+  const [editTelephone, setEditTelephone] = useState(client.telephone || "");
+  const [editSource, setEditSource] = useState(client.source || "Facebook");
+  const [editBesoin, setEditBesoin] = useState(client.besoin || "");
+  const [editType, setEditType] = useState(client.type);
+  const [confirmSuppClient, setConfirmSuppClient] = useState(false);
+
+  function sauverEditClient() {
+    if (!editNom.trim()) return;
+    onEditClient(client.id, {
+      nom: editNom.trim(),
+      telephone: editTelephone.trim(),
+      source: editSource,
+      besoin: editBesoin.trim(),
+      type: editType,
+    });
+    setEditClientOuvert(false);
+  }
+
+  function supprimerClient() {
+    onDeleteClient(client.id);
+    onClose();
+  }
 
   function handleAddCommande() {
     if (!desc.trim() || !montant) return;
@@ -2890,6 +3032,86 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
             </div>
           </div>
         </div>
+
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setEditClientOuvert((o) => !o)}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold"
+            style={{ background: editClientOuvert ? ink.panel : ink.bleu, color: editClientOuvert ? ink.ink600 : "#fff" }}
+          >
+            {editClientOuvert ? "Annuler" : "Modifier les infos"}
+          </button>
+          {!confirmSuppClient ? (
+            <button
+              onClick={() => setConfirmSuppClient(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold"
+              style={{ background: "transparent", color: ink.rouge, border: `1px solid ${ink.rouge}` }}
+            >
+              <Trash2 size={13} /> Supprimer le client
+            </button>
+          ) : (
+            <div className="flex-1 flex gap-2">
+              <button
+                onClick={supprimerClient}
+                className="flex-1 rounded-2xl py-2.5 text-xs font-bold"
+                style={{ background: ink.rouge, color: "#fff" }}
+              >
+                Confirmer
+              </button>
+              <button
+                onClick={() => setConfirmSuppClient(false)}
+                className="rounded-2xl px-3 py-2.5 text-xs font-semibold"
+                style={{ background: ink.panel, color: ink.ink600 }}
+              >
+                Annuler
+              </button>
+            </div>
+          )}
+        </div>
+
+        {confirmSuppClient && (
+          <div className="rounded-2xl p-3 mb-4 text-xs" style={{ background: `${ink.rouge}1A`, color: ink.rouge }}>
+            Cette action supprimera définitivement {client.nom} et toutes ses commandes. Clique sur "Confirmer" pour valider.
+          </div>
+        )}
+
+        {editClientOuvert && (
+          <div className="rounded-2xl p-4 mb-4 space-y-2.5" style={{ background: ink.panel, border: `1px solid ${ink.bleu}` }}>
+            <div>
+              <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Nom</label>
+              <input value={editNom} onChange={(e) => setEditNom(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Téléphone / WhatsApp</label>
+              <input value={editTelephone} onChange={(e) => setEditTelephone(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Source</label>
+                <select value={editSource} onChange={(e) => setEditSource(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle}>
+                  <option>Facebook</option>
+                  <option>WhatsApp</option>
+                  <option>TikTok</option>
+                  <option>Autre</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Type</label>
+                <select value={editType} onChange={(e) => setEditType(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle}>
+                  <option value="client">Client</option>
+                  <option value="prestataire">Prestataire</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Besoin exprimé</label>
+              <textarea value={editBesoin} onChange={(e) => setEditBesoin(e.target.value)} rows={2} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
+            </div>
+            <button onClick={sauverEditClient} className="w-full rounded-2xl py-2.5 text-sm font-semibold" style={{ background: ink.petrol, color: "#fff" }}>
+              Enregistrer
+            </button>
+          </div>
+        )}
 
         {ajoutOuvert ? (
           <div className="rounded-2xl p-3 mb-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
@@ -3135,6 +3357,7 @@ export default function CRMPrototype() {
   const [filter, setFilter] = useState("tous");
   const [query, setQuery] = useState("");
   const [modalOuvert, setModalOuvert] = useState(false);
+  const [importMessage, setImportMessage] = useState(null);
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [alerteAcquittee, setAlerteAcquittee] = useState(false);
   const [missionAlerteAcquittee, setMissionAlerteAcquittee] = useState(false);
@@ -3290,6 +3513,57 @@ export default function CRMPrototype() {
     logAction(`A ajouté le contact ${nouveauClient.nom} (${nouveauClient.id})`);
   }
 
+  function handleImportContacts(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: "binary" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+        if (!rows.length) {
+          setImportMessage({ type: "erreur", texte: "Le fichier ne contient aucune ligne exploitable." });
+          return;
+        }
+        const trouverChamp = (row, ...noms) => {
+          for (const cle of Object.keys(row)) {
+            if (noms.some((n) => cle.trim().toLowerCase() === n)) return String(row[cle]).trim();
+          }
+          return "";
+        };
+        let clientsCourant = clients;
+        const nouveaux = [];
+        rows.forEach((row) => {
+          const nom = trouverChamp(row, "nom", "name", "client");
+          if (!nom) return;
+          const id = prochainNumero([...clientsCourant, ...nouveaux]);
+          const nouveau = {
+            id,
+            nom,
+            type: (trouverChamp(row, "type").toLowerCase() === "prestataire" ? "prestataire" : "client"),
+            telephone: trouverChamp(row, "téléphone", "telephone", "numéro", "numero", "phone"),
+            source: trouverChamp(row, "source") || "Autre",
+            besoin: trouverChamp(row, "besoin"),
+            dateEntree: AUJOURD_HUI.toISOString().slice(0, 10),
+            statut: "Nouveau contact",
+            commandes: [],
+          };
+          nouveaux.push(nouveau);
+        });
+        if (!nouveaux.length) {
+          setImportMessage({ type: "erreur", texte: "Aucun contact valide trouvé — vérifie qu'il y a bien une colonne 'Nom'." });
+          return;
+        }
+        persist([...nouveaux, ...clients]);
+        logAction(`A importé ${nouveaux.length} contact${nouveaux.length > 1 ? "s" : ""} depuis un fichier`);
+        setImportMessage({ type: "succes", texte: `${nouveaux.length} contact${nouveaux.length > 1 ? "s" : ""} importé${nouveaux.length > 1 ? "s" : ""} avec succès.` });
+      } catch (err) {
+        console.error(err);
+        setImportMessage({ type: "erreur", texte: "Impossible de lire ce fichier. Vérifie qu'il s'agit bien d'un Excel (.xlsx) ou d'un CSV." });
+      }
+    };
+    reader.readAsBinaryString(file);
+  }
+
   function handleChangeStatut(id, statut) {
     const client = clients.find((c) => c.id === id);
     const next = clients.map((c) => (c.id === id ? { ...c, statut } : c));
@@ -3364,6 +3638,21 @@ export default function CRMPrototype() {
     persist(next);
     setSelected(next.find((c) => c.id === clientId));
     logAction(`A supprimé la commande "${cmd?.description}" de ${client?.nom}`);
+  }
+
+  function handleEditClient(clientId, updates) {
+    const client = clients.find((c) => c.id === clientId);
+    const next = clients.map((c) => (c.id === clientId ? { ...c, ...updates } : c));
+    persist(next);
+    setSelected(next.find((c) => c.id === clientId));
+    logAction(`A modifié les infos de ${client?.nom} (${updates.nom})`);
+  }
+
+  function handleDeleteClient(clientId) {
+    const client = clients.find((c) => c.id === clientId);
+    const next = clients.filter((c) => c.id !== clientId);
+    persist(next);
+    logAction(`A supprimé le client ${client?.nom} (${clientId})`);
   }
 
   function handleValiderEtape(pole, client) {
@@ -3661,6 +3950,8 @@ export default function CRMPrototype() {
             categories={categories}
             onAddCategorie={handleAddCategorie}
             onSetDeadlineEtape={handleSetDeadlineEtape}
+            onEditClient={handleEditClient}
+            onDeleteClient={handleDeleteClient}
           />
         ) : loading ? (
           <p className="text-sm" style={{ color: ink.ink600 }}>Chargement…</p>
@@ -3678,12 +3969,22 @@ export default function CRMPrototype() {
                 query={query}
                 setQuery={setQuery}
                 onNouveauContact={() => setModalOuvert(true)}
+                onImportContacts={handleImportContacts}
+                importMessage={importMessage}
+                onClearImportMessage={() => setImportMessage(null)}
               />
             )}
             {view === "parcours" && (isAdmin || hasRole("commercial")) && <Parcours clients={clients} onSelect={setSelected} />}
             {view === "fidelite" && (isAdmin || hasRole("commercial")) && <Fidelite clients={clients} />}
             {view === "base_clients" && isAdmin && (
-              <BaseClients clients={clients} categories={categories} onSelect={setSelected} />
+              <BaseClients
+                clients={clients}
+                categories={categories}
+                onSelect={setSelected}
+                onImportContacts={handleImportContacts}
+                importMessage={importMessage}
+                onClearImportMessage={() => setImportMessage(null)}
+              />
             )}
             {view === "commande_attente" && (isAdmin || hasRole("commercial")) && (
               <ClientsList
