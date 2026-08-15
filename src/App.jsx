@@ -162,7 +162,7 @@ function StatusPill({ label, color }) {
 }
 
 const STATUTS = [
-  "Nouveau contact",
+  "Dossier à suivre",
   "En attente de validation",
   "Commande confirmée",
   "Conception",
@@ -172,7 +172,7 @@ const STATUTS = [
 ];
 
 const STATUT_COLOR = {
-  "Nouveau contact": ink.ink300,
+  "Dossier à suivre": ink.ink300,
   "En attente de validation": ink.ochre,
   "Commande confirmée": ink.petrol,
   Conception: ink.bleu,
@@ -189,7 +189,7 @@ const URGENCE_COLOR = {
 
 const SOURCE_ICON = { Facebook: Facebook, WhatsApp: MessageCircle, TikTok: Music2 };
 
-const REGLAGES_DEFAUT = { seuilInactiviteJours: 14, frequenceRelance: "hebdomadaire" };
+const REGLAGES_DEFAUT = { seuilInactiviteJours: 14, seuilCommandeInactiveJours: 3, frequenceRelance: "hebdomadaire" };
 
 const ADMIN_AUTH_DEFAUT = { nom: "Félix", motDePasse: "serigraphe2026" };
 
@@ -335,7 +335,7 @@ const CLIENTS_INIT = [
     telephone: "+229 90 15 44 28",
     source: "WhatsApp",
     dateEntree: "2026-06-02",
-    statut: "Nouveau contact",
+    statut: "Dossier à suivre",
     commandes: [],
   },
   {
@@ -501,25 +501,36 @@ function MessageDuJour({ nom, pole = "commercial" }) {
 // ---------------------------------------------------------------------------
 // Vue : Tableau de bord
 // ---------------------------------------------------------------------------
+// Système 1 — clients inactifs (relance générale : saluer, rappeler notre présence)
 function clientsARelancer(clients, seuil) {
   const clientsOnly = clients.filter((c) => c.type === "client");
-  const statutsExclus = ["Conception", "En production", "Prêt / à livrer", "Livré"];
-  const inactifs = clientsOnly.filter(
+  const statutsExclus = ["Conception", "En production", "Prêt / à livrer", "Livré", "Dossier à suivre", "En attente de validation"];
+  return clientsOnly.filter(
     (c) =>
       joursDepuis(derniereActivite(c)) > seuil &&
       c.commandes.length > 0 &&
       !statutsExclus.includes(c.statut)
   );
-  const enAttenteValidation = clientsOnly.filter((c) => c.statut === "En attente de validation");
-  const map = new Map();
-  inactifs.forEach((c) => map.set(c.id, c));
-  enAttenteValidation.forEach((c) => map.set(c.id, c));
-  return [...map.values()];
+}
+
+// Système 2 — commandes inactives : statut "Dossier à suivre" ou "En attente de validation" depuis trop longtemps
+function commandesARelancer(clients, seuil) {
+  const clientsOnly = clients.filter((c) => c.type === "client");
+  const statutsConcernes = ["Dossier à suivre", "En attente de validation"];
+  return clientsOnly.filter(
+    (c) => statutsConcernes.includes(c.statut) && joursDepuis(derniereActivite(c)) > seuil
+  );
 }
 
 function ARelancerListe({ clients, reglages, onSelect }) {
   const seuil = reglages.seuilInactiviteJours;
-  const liste = clientsARelancer(clients, seuil);
+  const seuilCommande = reglages.seuilCommandeInactiveJours;
+  const listeClients = clientsARelancer(clients, seuil);
+  const listeCommandes = commandesARelancer(clients, seuilCommande);
+  const map = new Map();
+  listeClients.forEach((c) => map.set(c.id, c));
+  listeCommandes.forEach((c) => map.set(c.id, c));
+  const liste = [...map.values()];
 
   return (
     <div className="rounded-3xl overflow-hidden" style={{ border: `1px solid ${ink.line}` }}>
@@ -527,7 +538,7 @@ function ARelancerListe({ clients, reglages, onSelect }) {
         <p className="text-xs p-4" style={{ color: ink.ink600 }}>Rien à relancer pour le moment.</p>
       ) : (
         liste.map((c, i) => {
-          const nonDemarree = c.statut === "En attente de validation";
+          const commandeInactive = ["Dossier à suivre", "En attente de validation"].includes(c.statut);
           const joursInactif = joursDepuis(derniereActivite(c));
           return (
             <div
@@ -541,7 +552,7 @@ function ARelancerListe({ clients, reglages, onSelect }) {
                 <Tampon id={c.id} small color={ink.rouge} />
               </div>
               <div className="text-xs text-right shrink-0" style={{ color: ink.rouge }}>
-                {nonDemarree ? "en attente de validation" : `${joursInactif} j sans activité`}
+                {commandeInactive ? `commande inactive — ${joursInactif} j` : `client inactif — ${joursInactif} j`}
               </div>
             </div>
           );
@@ -553,12 +564,18 @@ function ARelancerListe({ clients, reglages, onSelect }) {
 
 function Dashboard({ clients, reglages, currentUser, missions, setView }) {
   const clientsOnly = clients.filter((c) => c.type === "client");
-  const caMois = clientsOnly.reduce(
-    (s, c) => s + c.commandes.filter((cmd) => dansLeMois(cmd.date)).reduce((s2, cmd) => s2 + Number(cmd.montant || 0), 0),
+  const isAdminDash = currentUser.roles.includes("admin");
+  const caPeriode = clientsOnly.reduce(
+    (s, c) =>
+      s +
+      c.commandes
+        .filter((cmd) => (isAdminDash ? dansLeMois(cmd.date) : dansLeJour(cmd.date)))
+        .reduce((s2, cmd) => s2 + Number(cmd.montant || 0), 0),
     0
   );
   const nouveauxCeMois = clients.filter((c) => dansLeMois(c.dateEntree)).length;
   const seuil = reglages.seuilInactiviteJours;
+  const totalARelancer = clientsARelancer(clients, seuil).length + commandesARelancer(clients, reglages.seuilCommandeInactiveJours).length;
   const statutsExclusInactivite = ["Conception", "En production", "Prêt / à livrer", "Livré"];
   const inactifs = clientsOnly.filter(
     (c) => joursDepuis(derniereActivite(c)) > seuil && c.commandes.length > 0 && !statutsExclusInactivite.includes(c.statut)
@@ -574,7 +591,6 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
     ["Conception", "En production"].includes(c.statut)
   );
   const livraisonEnAttente = clients.filter((c) => c.statut === "Prêt / à livrer");
-  const isAdminDash = currentUser.roles.includes("admin");
   const missionsAFaire = missions.filter((m) => m.statut === "a_faire" && (isAdminDash || m.assigneA === currentUser.nom));
   const missionsUrgentes = missionsAFaire.filter((m) => m.urgence === "urgent").length;
   const missionsTresUrgentes = missionsAFaire.filter((m) => m.urgence === "tres_urgent").length;
@@ -612,8 +628,8 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
       >
         <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full blur-2xl" style={{ background: "rgba(255,106,0,0.25)" }} />
         <div className="relative z-10">
-          <div className="text-sm mb-2" style={{ color: ink.ink600 }}>Chiffre d'affaires du mois</div>
-          <div className="text-4xl font-extrabold mb-4" style={{ color: ink.ink900 }}>{fmt(caMois)}</div>
+          <div className="text-sm mb-2" style={{ color: ink.ink600 }}>{isAdminDash ? "Chiffre d'affaires du mois" : "Chiffre d'affaires du jour"}</div>
+          <div className="text-4xl font-extrabold mb-4" style={{ color: ink.ink900 }}>{fmt(caPeriode)}</div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill label={`${nouveauxCeMois} nouveaux contacts`} color={ink.green} />
             <StatusPill label={`${commandesEnAttente.length} en cours`} color={ink.orange} />
@@ -680,7 +696,7 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
           <div className="flex items-center justify-between mb-1.5">
             <AlertTriangle size={17} />
             <span className="text-sm font-bold" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800 }}>
-              {clientsARelancer(clients, seuil).length}
+              {totalARelancer}
             </span>
           </div>
           <div className="text-xs font-semibold leading-tight">À relancer</div>
@@ -703,7 +719,7 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
       </div>
 
       <div className="flex flex-wrap gap-4">
-        {stat("Chiffre d'affaires (mois)", fmt(caMois), Wallet, ink.petrol)}
+        {stat(isAdminDash ? "Chiffre d'affaires (mois)" : "Chiffre d'affaires (jour)", fmt(caPeriode), Wallet, ink.petrol)}
         {stat("Nouveaux contacts (ce mois)", nouveauxCeMois, TrendingUp, ink.ochre)}
         {stat(`Clients inactifs (+${seuil}j)`, inactifs.length, AlertTriangle, ink.rouge)}
         {stat("Client le plus fidèle", topClient?.nom.split(" ")[0] || "—", Trophy, ink.petrol)}
@@ -780,18 +796,17 @@ function categoriesClient(c) {
   return cats.length ? cats.join(", ") : "—";
 }
 
-function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, onNouveauContact, onImportContacts, importMessage, onClearImportMessage, statutForce }) {
+function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, statutForce }) {
   const [queryBesoin, setQueryBesoin] = useState("");
 
-  const filtered = clients.filter((c) => {
+  const lignes = clients.flatMap((c) => (c.commandes || []).map((cmd) => ({ client: c, cmd })));
+
+  const filtered = lignes.filter(({ client: c, cmd }) => {
     if (statutForce && !statutForce.includes(c.statut)) return false;
     if (filter !== "tous" && c.type !== filter) return false;
     if (query && !c.nom.toLowerCase().includes(query.toLowerCase()) && !c.id.toLowerCase().includes(query.toLowerCase()))
       return false;
-    if (queryBesoin) {
-      const texte = `${detailsCommande(c)} ${c.besoin || ""}`.toLowerCase();
-      if (!texte.includes(queryBesoin.toLowerCase())) return false;
-    }
+    if (queryBesoin && !cmd.description.toLowerCase().includes(queryBesoin.toLowerCase())) return false;
     return true;
   });
 
@@ -824,7 +839,7 @@ function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, on
           <input
             value={queryBesoin}
             onChange={(e) => setQueryBesoin(e.target.value)}
-            placeholder="Besoin / produit (ex. t-shirt)..."
+            placeholder="Article commandé (ex. t-shirt)..."
             className="bg-transparent outline-none text-sm flex-1"
             style={{ color: ink.ink900 }}
           />
@@ -845,91 +860,47 @@ function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, on
         ))}
       </div>
 
-      {onNouveauContact && (
-        <div className="flex gap-2">
-          <button
-            onClick={onNouveauContact}
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
-            style={{ background: ink.rouge, color: "#fff" }}
-          >
-            <Plus size={15} /> Nouveau contact
-          </button>
-          {onImportContacts && (
-            <label
-              className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold cursor-pointer"
-              style={{ background: ink.panel, border: `1px solid ${ink.line}`, color: ink.ink900 }}
-            >
-              <ArrowUpFromLine size={15} /> Importer
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onImportContacts(file);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          )}
-        </div>
-      )}
-
-      {importMessage && (
-        <div
-          className="rounded-2xl px-3 py-2.5 text-xs font-medium flex items-center justify-between gap-2"
-          style={{
-            background: importMessage.type === "succes" ? "rgba(95,168,91,0.15)" : `${ink.rouge}1A`,
-            color: importMessage.type === "succes" ? "#5FA85B" : ink.rouge,
-          }}
-        >
-          <span>{importMessage.texte}</span>
-          <button onClick={onClearImportMessage}>
-            <X size={13} />
-          </button>
-        </div>
-      )}
-
       <div className="space-y-3">
-        {filtered.map((c) => {
-          const cats = categoriesClient(c);
-          return (
-            <PremiumCard key={c.id} className="p-4 cursor-pointer" onClick={() => onSelect(c)} style={{ borderLeft: `3px solid ${STATUT_COLOR[c.statut] || ink.ink300}` }}>
-              <div className="flex items-start gap-3">
-                <div
-                  className="h-12 w-12 rounded-2xl flex items-center justify-center shrink-0"
-                  style={{ background: `${STATUT_COLOR[c.statut] || ink.ink300}1F`, border: `1px solid ${STATUT_COLOR[c.statut] || ink.ink300}44` }}
-                >
-                  <Users size={20} style={{ color: STATUT_COLOR[c.statut] || ink.ink300 }} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold truncate" style={{ color: ink.ink900 }}>{c.nom}</div>
-                      <div className="text-[11px]" style={{ color: ink.ink600 }}>{c.telephone || "—"}</div>
-                    </div>
-                    <ChevronRight size={16} className="shrink-0" style={{ color: ink.ink300 }} />
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    <TypeBadge type={c.type} />
-                    <StatutBadge statut={c.statut} />
-                  </div>
-                  <div className="text-xs mb-2" style={{ color: ink.ink600 }}>
-                    {detailsCommande(c)}
-                    {cats !== "—" && <span style={{ color: ink.bleu }}> · {cats}</span>}
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <Tampon id={c.id} small />
-                    <span className="font-bold" style={{ fontFamily: "'Inter', monospace", color: ink.ink900 }}>{fmt(totalClient(c))}</span>
-                  </div>
+        {filtered.map(({ client: c, cmd }) => (
+          <PremiumCard
+            key={cmd.id}
+            className="p-4 cursor-pointer"
+            onClick={() => onSelect(c)}
+            style={{ borderLeft: `3px solid ${STATUT_COLOR[c.statut] || ink.ink300}` }}
+          >
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <div className="min-w-0">
+                <div className="text-sm font-bold truncate" style={{ color: ink.ink900 }}>{cmd.description}</div>
+                <div className="text-[11px] flex items-center gap-1.5 flex-wrap mt-0.5" style={{ color: ink.ink600 }}>
+                  <Tampon id={c.id} small /> {c.nom}
                 </div>
               </div>
-            </PremiumCard>
-          );
-        })}
+              <ChevronRight size={16} className="shrink-0" style={{ color: ink.ink300 }} />
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              <StatutBadge statut={c.statut} />
+              {cmd.categorie && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: `${ink.bleu}1A`, color: ink.bleu }}>
+                  {cmd.categorie}
+                </span>
+              )}
+              {cmd.nonConfirmee && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: `${ink.ochre}1A`, color: ink.ochre }}>
+                  Non confirmée
+                </span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span style={{ color: ink.ink600 }}>{cmd.date}</span>
+              {!cmd.nonConfirmee && (
+                <span className="font-bold" style={{ fontFamily: "'Inter', monospace", color: ink.ink900 }}>{fmt(cmd.montant)}</span>
+              )}
+            </div>
+          </PremiumCard>
+        ))}
         {filtered.length === 0 && (
           <PremiumCard className="p-8 text-center">
-            <p className="text-sm" style={{ color: ink.ink600 }}>Aucun résultat.</p>
+            <p className="text-sm" style={{ color: ink.ink600 }}>Aucune commande trouvée.</p>
           </PremiumCard>
         )}
       </div>
@@ -1025,6 +996,7 @@ function Fidelite({ clients }) {
 // ---------------------------------------------------------------------------
 function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, onSaveCategories }) {
   const [seuil, setSeuil] = useState(reglages.seuilInactiviteJours);
+  const [seuilCommande, setSeuilCommande] = useState(reglages.seuilCommandeInactiveJours);
   const [frequence, setFrequence] = useState(reglages.frequenceRelance);
   const [saved, setSaved] = useState(false);
   const [nouveauMdp, setNouveauMdp] = useState("");
@@ -1032,7 +1004,11 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
   const [nouvelleCategorie, setNouvelleCategorie] = useState("");
 
   function handleSave() {
-    onSave({ seuilInactiviteJours: Number(seuil) || 14, frequenceRelance: frequence });
+    onSave({
+      seuilInactiviteJours: Number(seuil) || 14,
+      seuilCommandeInactiveJours: Number(seuilCommande) || 3,
+      frequenceRelance: frequence,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
   }
@@ -1059,9 +1035,10 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
   return (
     <div className="space-y-4 max-w-md">
       <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-        <h3 className="text-sm font-semibold mb-1" style={{ color: ink.ink900 }}>Seuil d'inactivité</h3>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: ink.ink900 }}>Système 1 — Clients inactifs</h3>
         <p className="text-xs mb-3" style={{ color: ink.ink600 }}>
-          Au bout de combien de jours sans activité un client passe "inactif" et apparaît dans les alertes de relance.
+          Au bout de combien de jours sans activité un client (déjà en cours de commande) passe "inactif" — utile pour le
+          saluer, rappeler qu'on est présent.
         </p>
         <div className="flex items-center gap-2">
           <input
@@ -1073,6 +1050,25 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
             style={inputStyle}
           />
           <span className="text-sm" style={{ color: ink.ink600 }}>jours (ex. 14 = deux semaines)</span>
+        </div>
+      </div>
+
+      <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: ink.ink900 }}>Système 2 — Commandes inactives</h3>
+        <p className="text-xs mb-3" style={{ color: ink.ink600 }}>
+          Au bout de combien de jours un dossier resté en statut "Dossier à suivre" ou "En attente de validation" doit
+          être relancé.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min="1"
+            value={seuilCommande}
+            onChange={(e) => setSeuilCommande(e.target.value)}
+            className="w-24 rounded-2xl px-3 py-2 text-sm"
+            style={inputStyle}
+          />
+          <span className="text-sm" style={{ color: ink.ink600 }}>jours (ex. 3 = trois jours)</span>
         </div>
       </div>
 
@@ -1635,7 +1631,7 @@ function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, 
 // ---------------------------------------------------------------------------
 // Vue : Base de données clients (admin) — filtres article / période / CA
 // ---------------------------------------------------------------------------
-function BaseClients({ clients, categories, onSelect, onImportContacts, importMessage, onClearImportMessage }) {
+function BaseClients({ clients, categories, onSelect, onImportContacts, importMessage, onClearImportMessage, isAdmin, onNouveauContact }) {
   const [query, setQuery] = useState("");
   const [filtreArticle, setFiltreArticle] = useState("tous");
   const [periode, setPeriode] = useState("an");
@@ -1681,33 +1677,43 @@ function BaseClients({ clients, categories, onSelect, onImportContacts, importMe
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
-        {onImportContacts && (
-          <label
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold cursor-pointer"
-            style={{ background: ink.panel, border: `1px solid ${ink.line}`, color: ink.ink900 }}
+      <button
+        onClick={onNouveauContact}
+        className="w-full flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
+        style={{ background: ink.rouge, color: "#fff" }}
+      >
+        <Plus size={15} /> Nouveau contact
+      </button>
+
+      {isAdmin && (
+        <div className="flex gap-2">
+          {onImportContacts && (
+            <label
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold cursor-pointer"
+              style={{ background: ink.panel, border: `1px solid ${ink.line}`, color: ink.ink900 }}
+            >
+              <ArrowUpFromLine size={15} /> Importer
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onImportContacts(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          )}
+          <button
+            onClick={exporterExcel}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
+            style={{ background: ink.ochre, color: "#fff" }}
           >
-            <ArrowUpFromLine size={15} /> Importer
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onImportContacts(file);
-                e.target.value = "";
-              }}
-            />
-          </label>
-        )}
-        <button
-          onClick={exporterExcel}
-          className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
-          style={{ background: ink.ochre, color: "#fff" }}
-        >
-          <FileBarChart size={15} /> Exporter ({filtres.length})
-        </button>
-      </div>
+            <FileBarChart size={15} /> Exporter ({filtres.length})
+          </button>
+        </div>
+      )}
 
       {importMessage && (
         <div
@@ -2199,7 +2205,7 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) 
 }
 
 
-function BottomNav({ view, setView, isAdmin, hasRole, onNouveauContact }) {
+function BottomNav({ view, setView, isAdmin, hasRole, onAjouterCommande }) {
   let homeId = "dashboard";
   if (!isAdmin && !hasRole("commercial")) {
     if (hasRole("graphiste")) homeId = "dashboard_graphiste";
@@ -2228,10 +2234,10 @@ function BottomNav({ view, setView, isAdmin, hasRole, onNouveauContact }) {
       ? { id: "base_clients", label: "Client", Icon: Database, center: true, action: () => setView("base_clients") }
       : {
           id: "create",
-          label: commandeEnabled ? "Créer" : "Mission",
+          label: commandeEnabled ? "Enregistrer" : "Mission",
           Icon: Plus,
           center: true,
-          action: commandeEnabled ? onNouveauContact : () => setView("missions"),
+          action: commandeEnabled ? onAjouterCommande : () => setView("missions"),
         },
     { id: "missions", label: "Missions", Icon: ListChecks, action: () => setView("missions") },
     {
@@ -2736,9 +2742,10 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   const [montantCout, setMontantCout] = useState("");
   const [editOuvert, setEditOuvert] = useState(false);
   const [editDesc, setEditDesc] = useState(cmd.description);
-  const [editMontant, setEditMontant] = useState(String(cmd.montant));
-  const [editMontantPaye, setEditMontantPaye] = useState(String(cmd.montantPaye));
+  const [editMontant, setEditMontant] = useState(String(cmd.montant || ""));
+  const [editMontantPaye, setEditMontantPaye] = useState(String(cmd.montantPaye || ""));
   const [editCategorie, setEditCategorie] = useState(cmd.categorie || "");
+  const [editNonConfirmee, setEditNonConfirmee] = useState(!!cmd.nonConfirmee);
   const [confirmSupp, setConfirmSupp] = useState(false);
   const statutP = statutPaiement(cmd);
   const reste = cmd.montant - cmd.montantPaye;
@@ -2754,12 +2761,14 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   }
 
   function sauverEdit() {
-    if (!editDesc.trim() || !editMontant) return;
+    if (!editDesc.trim()) return;
+    if (!editNonConfirmee && !editMontant) return;
     onEdit(clientId, cmd.id, {
       description: editDesc.trim(),
-      montant: Number(editMontant),
+      montant: Number(editMontant || 0),
       montantPaye: Number(editMontantPaye || 0),
       categorie: editCategorie || null,
+      nonConfirmee: editNonConfirmee,
     });
     setEditOuvert(false);
   }
@@ -2775,9 +2784,13 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
         <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Description" className="w-full rounded-2xl px-3 py-2 text-sm mb-2" style={inputStyle} />
         <SelecteurCategorie value={editCategorie} onChange={setEditCategorie} categories={categories} onAddCategorie={onAddCategorie} />
         <div className="grid grid-cols-2 gap-2 mb-2">
-          <input value={editMontant} onChange={(e) => setEditMontant(e.target.value)} type="number" placeholder="Montant (F)" className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle} />
-          <input value={editMontantPaye} onChange={(e) => setEditMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle} />
+          <input value={editMontant} onChange={(e) => setEditMontant(e.target.value)} type="number" placeholder="Montant (F)" disabled={editNonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: editNonConfirmee ? 0.5 : 1 }} />
+          <input value={editMontantPaye} onChange={(e) => setEditMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" disabled={editNonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: editNonConfirmee ? 0.5 : 1 }} />
         </div>
+        <label className="flex items-center gap-2 mb-2 text-xs font-medium cursor-pointer" style={{ color: ink.ochre }}>
+          <input type="checkbox" checked={editNonConfirmee} onChange={(e) => setEditNonConfirmee(e.target.checked)} />
+          Commande non confirmée (pas encore de montant)
+        </label>
         <div className="flex gap-2">
           <button onClick={sauverEdit} className="flex-1 rounded-2xl py-2 text-xs font-semibold" style={{ background: ink.petrol, color: "#fff" }}>
             Enregistrer
@@ -2796,9 +2809,9 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
         <span className="text-sm font-medium" style={{ color: ink.ink900 }}>{cmd.description}</span>
         <span
           className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ml-2"
-          style={{ background: `${PAIEMENT_COLOR[statutP]}1A`, color: PAIEMENT_COLOR[statutP] }}
+          style={{ background: cmd.nonConfirmee ? `${ink.ochre}1A` : `${PAIEMENT_COLOR[statutP]}1A`, color: cmd.nonConfirmee ? ink.ochre : PAIEMENT_COLOR[statutP] }}
         >
-          {statutP}
+          {cmd.nonConfirmee ? "Non confirmée" : statutP}
         </span>
       </div>
       <div className="text-[11px] mb-2 flex items-center gap-1.5" style={{ color: ink.ink600 }}>
@@ -2809,10 +2822,12 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
           </span>
         )}
       </div>
-      <div className="flex items-center justify-between text-xs mb-2" style={{ fontFamily: "'Inter', monospace" }}>
-        <span style={{ color: ink.ink900 }}>{fmt(cmd.montant)}</span>
-        {reste > 0 && <span style={{ color: ink.rouge }}>reste {fmt(reste)}</span>}
-      </div>
+      {!cmd.nonConfirmee && (
+        <div className="flex items-center justify-between text-xs mb-2" style={{ fontFamily: "'Inter', monospace" }}>
+          <span style={{ color: ink.ink900 }}>{fmt(cmd.montant)}</span>
+          {reste > 0 && <span style={{ color: ink.rouge }}>reste {fmt(reste)}</span>}
+        </div>
+      )}
 
       {couts.length > 0 && (
         <div className="rounded-2xl p-2 mb-2 space-y-1" style={{ background: ink.canvasDeep }}>
@@ -2911,12 +2926,13 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   );
 }
 
-function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout, onSolderCommande, onEditCommande, onDeleteCommande, templates, onRelance, categories, onAddCategorie, onSetDeadlineEtape, onEditClient, onDeleteClient }) {
+function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout, onSolderCommande, onEditCommande, onDeleteCommande, templates, onRelance, categories, onAddCategorie, onSetDeadlineEtape, onEditClient, onDeleteClient, modeGestion = false }) {
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
   const [desc, setDesc] = useState("");
   const [montant, setMontant] = useState("");
   const [montantPaye, setMontantPaye] = useState("");
   const [categorieChoisie, setCategorieChoisie] = useState("");
+  const [nonConfirmee, setNonConfirmee] = useState(false);
   const [relanceOuverte, setRelanceOuverte] = useState(false);
   const [copieId, setCopieId] = useState(null);
   const [editClientOuvert, setEditClientOuvert] = useState(false);
@@ -2945,20 +2961,23 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
   }
 
   function handleAddCommande() {
-    if (!desc.trim() || !montant) return;
+    if (!desc.trim()) return;
+    if (!nonConfirmee && !montant) return;
     onAddCommande(client.id, {
       id: Date.now(),
       date: AUJOURD_HUI.toISOString().slice(0, 10),
       description: desc.trim(),
-      montant: Number(montant),
+      montant: Number(montant || 0),
       montantPaye: Number(montantPaye || 0),
       categorie: categorieChoisie || null,
+      nonConfirmee,
       couts: [],
     });
     setDesc("");
     setMontant("");
     setMontantPaye("");
     setCategorieChoisie("");
+    setNonConfirmee(false);
     setAjoutOuvert(false);
   }
 
@@ -2980,137 +2999,138 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
         <ChevronLeft size={18} /> Retour
       </button>
       <div className="pb-10">
-        <div className="flex items-start justify-between mb-5">
-          <div>
-            <Tampon id={client.id} />
-            <h2
-              className="text-2xl font-bold mt-3"
-              style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800, color: ink.ink900 }}
-            >
-              {client.nom}
-            </h2>
-            <div className="mt-2.5">
-              <TypeBadge type={client.type} />
-              <div className="mt-2">
-                <label className="text-[10px] font-medium uppercase tracking-wide block mb-1" style={{ color: ink.ink600 }}>
-                  Statut — touche pour changer
-                </label>
-                <div className="relative inline-block">
-                  <select
-                    value={client.statut}
-                    onChange={(e) => onChangeStatut(client.id, e.target.value)}
-                    className="text-sm font-semibold rounded-2xl pl-3 pr-8 py-2 outline-none appearance-none"
-                    style={{
-                      background: ink.panel,
-                      border: `2px solid ${STATUT_COLOR[client.statut]}`,
-                      color: STATUT_COLOR[client.statut],
-                    }}
-                  >
-                    {STATUTS.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                  <ChevronRight
-                    size={14}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none rotate-90"
-                    style={{ color: STATUT_COLOR[client.statut] }}
-                  />
-                </div>
-              </div>
-              <div className="mt-2">
-                <label className="text-[10px] font-medium uppercase tracking-wide block mb-1" style={{ color: ink.ink600 }}>
-                  Deadline de cette étape (pour le pôle concerné)
-                </label>
-                <input
-                  type="datetime-local"
-                  value={client.deadlineEtape ? client.deadlineEtape.slice(0, 16) : ""}
-                  onChange={(e) => onSetDeadlineEtape(client.id, e.target.value || null)}
-                  className="text-sm rounded-2xl px-3 py-2"
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setEditClientOuvert((o) => !o)}
-            className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold"
-            style={{ background: editClientOuvert ? ink.panel : ink.bleu, color: editClientOuvert ? ink.ink600 : "#fff" }}
-          >
-            {editClientOuvert ? "Annuler" : "Modifier les infos"}
-          </button>
-          {!confirmSuppClient ? (
-            <button
-              onClick={() => setConfirmSuppClient(true)}
-              className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold"
-              style={{ background: "transparent", color: ink.rouge, border: `1px solid ${ink.rouge}` }}
-            >
-              <Trash2 size={13} /> Supprimer le client
-            </button>
-          ) : (
-            <div className="flex-1 flex gap-2">
-              <button
-                onClick={supprimerClient}
-                className="flex-1 rounded-2xl py-2.5 text-xs font-bold"
-                style={{ background: ink.rouge, color: "#fff" }}
-              >
-                Confirmer
-              </button>
-              <button
-                onClick={() => setConfirmSuppClient(false)}
-                className="rounded-2xl px-3 py-2.5 text-xs font-semibold"
-                style={{ background: ink.panel, color: ink.ink600 }}
-              >
-                Annuler
-              </button>
-            </div>
+        <div className="flex items-center gap-2 flex-wrap mb-4">
+          <Tampon id={client.id} small />
+          <span className="text-base font-bold" style={{ color: ink.ink900 }}>{client.nom}</span>
+          {client.telephone && (
+            <span className="text-xs" style={{ color: ink.ink600 }}>· {client.telephone}</span>
           )}
+          <TypeBadge type={client.type} />
         </div>
 
-        {confirmSuppClient && (
-          <div className="rounded-2xl p-3 mb-4 text-xs" style={{ background: `${ink.rouge}1A`, color: ink.rouge }}>
-            Cette action supprimera définitivement {client.nom} et toutes ses commandes. Clique sur "Confirmer" pour valider.
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <div>
+            <label className="text-[10px] font-medium uppercase tracking-wide block mb-1" style={{ color: ink.ink600 }}>
+              Statut
+            </label>
+            <div className="relative">
+              <select
+                value={client.statut}
+                onChange={(e) => onChangeStatut(client.id, e.target.value)}
+                className="w-full text-xs font-semibold rounded-2xl pl-2.5 pr-6 py-2 outline-none appearance-none"
+                style={{
+                  background: ink.panel,
+                  border: `2px solid ${STATUT_COLOR[client.statut]}`,
+                  color: STATUT_COLOR[client.statut],
+                }}
+              >
+                {STATUTS.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <ChevronRight
+                size={12}
+                className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none rotate-90"
+                style={{ color: STATUT_COLOR[client.statut] }}
+              />
+            </div>
           </div>
-        )}
+          <div>
+            <label className="text-[10px] font-medium uppercase tracking-wide block mb-1" style={{ color: ink.ink600 }}>
+              Deadline étape
+            </label>
+            <input
+              type="datetime-local"
+              value={client.deadlineEtape ? client.deadlineEtape.slice(0, 16) : ""}
+              onChange={(e) => onSetDeadlineEtape(client.id, e.target.value || null)}
+              className="w-full text-xs rounded-2xl px-2.5 py-2"
+              style={inputStyle}
+            />
+          </div>
+        </div>
 
-        {editClientOuvert && (
-          <div className="rounded-2xl p-4 mb-4 space-y-2.5" style={{ background: ink.panel, border: `1px solid ${ink.bleu}` }}>
-            <div>
-              <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Nom</label>
-              <input value={editNom} onChange={(e) => setEditNom(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
+        {modeGestion && (
+          <>
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setEditClientOuvert((o) => !o)}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold"
+                style={{ background: editClientOuvert ? ink.panel : ink.bleu, color: editClientOuvert ? ink.ink600 : "#fff" }}
+              >
+                {editClientOuvert ? "Annuler" : "Modifier les infos"}
+              </button>
+              {!confirmSuppClient ? (
+                <button
+                  onClick={() => setConfirmSuppClient(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold"
+                  style={{ background: "transparent", color: ink.rouge, border: `1px solid ${ink.rouge}` }}
+                >
+                  <Trash2 size={13} /> Supprimer le client
+                </button>
+              ) : (
+                <div className="flex-1 flex gap-2">
+                  <button
+                    onClick={supprimerClient}
+                    className="flex-1 rounded-2xl py-2.5 text-xs font-bold"
+                    style={{ background: ink.rouge, color: "#fff" }}
+                  >
+                    Confirmer
+                  </button>
+                  <button
+                    onClick={() => setConfirmSuppClient(false)}
+                    className="rounded-2xl px-3 py-2.5 text-xs font-semibold"
+                    style={{ background: ink.panel, color: ink.ink600 }}
+                  >
+                    Annuler
+                  </button>
+                </div>
+              )}
             </div>
-            <div>
-              <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Téléphone / WhatsApp</label>
-              <input value={editTelephone} onChange={(e) => setEditTelephone(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Source</label>
-                <select value={editSource} onChange={(e) => setEditSource(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle}>
-                  <option>Facebook</option>
-                  <option>WhatsApp</option>
-                  <option>TikTok</option>
-                  <option>Autre</option>
-                </select>
+
+            {confirmSuppClient && (
+              <div className="rounded-2xl p-3 mb-4 text-xs" style={{ background: `${ink.rouge}1A`, color: ink.rouge }}>
+                Cette action supprimera définitivement {client.nom} et toutes ses commandes. Clique sur "Confirmer" pour valider.
               </div>
-              <div>
-                <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Type</label>
-                <select value={editType} onChange={(e) => setEditType(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle}>
-                  <option value="client">Client</option>
-                  <option value="prestataire">Prestataire</option>
-                </select>
+            )}
+
+            {editClientOuvert && (
+              <div className="rounded-2xl p-4 mb-4 space-y-2.5" style={{ background: ink.panel, border: `1px solid ${ink.bleu}` }}>
+                <div>
+                  <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Nom</label>
+                  <input value={editNom} onChange={(e) => setEditNom(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Téléphone / WhatsApp</label>
+                  <input value={editTelephone} onChange={(e) => setEditTelephone(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Source</label>
+                    <select value={editSource} onChange={(e) => setEditSource(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle}>
+                      <option>Facebook</option>
+                      <option>WhatsApp</option>
+                      <option>TikTok</option>
+                      <option>Autre</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Type</label>
+                    <select value={editType} onChange={(e) => setEditType(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle}>
+                      <option value="client">Client</option>
+                      <option value="prestataire">Prestataire</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Besoin exprimé</label>
+                  <textarea value={editBesoin} onChange={(e) => setEditBesoin(e.target.value)} rows={2} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
+                </div>
+                <button onClick={sauverEditClient} className="w-full rounded-2xl py-2.5 text-sm font-semibold" style={{ background: ink.petrol, color: "#fff" }}>
+                  Enregistrer
+                </button>
               </div>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium" style={{ color: ink.ink600 }}>Besoin exprimé</label>
-              <textarea value={editBesoin} onChange={(e) => setEditBesoin(e.target.value)} rows={2} className="w-full rounded-2xl px-3 py-2 text-sm mt-1" style={inputStyle} />
-            </div>
-            <button onClick={sauverEditClient} className="w-full rounded-2xl py-2.5 text-sm font-semibold" style={{ background: ink.petrol, color: "#fff" }}>
-              Enregistrer
-            </button>
-          </div>
+            )}
+          </>
         )}
 
         {ajoutOuvert ? (
@@ -3118,9 +3138,13 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
             <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (ex. T-shirts x50)" className="w-full rounded-2xl px-3 py-2 text-sm mb-2" style={inputStyle} />
             <SelecteurCategorie value={categorieChoisie} onChange={setCategorieChoisie} categories={categories} onAddCategorie={onAddCategorie} />
             <div className="grid grid-cols-2 gap-2 mb-2">
-              <input value={montant} onChange={(e) => setMontant(e.target.value)} type="number" placeholder="Montant (F)" className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle} />
-              <input value={montantPaye} onChange={(e) => setMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle} />
+              <input value={montant} onChange={(e) => setMontant(e.target.value)} type="number" placeholder="Montant (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
+              <input value={montantPaye} onChange={(e) => setMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
             </div>
+            <label className="flex items-center gap-2 mb-2 text-xs font-medium cursor-pointer" style={{ color: ink.ochre }}>
+              <input type="checkbox" checked={nonConfirmee} onChange={(e) => setNonConfirmee(e.target.checked)} />
+              Commande non confirmée (pas encore de montant)
+            </label>
             <div className="flex gap-2">
               <button onClick={handleAddCommande} className="flex-1 rounded-2xl py-2 text-xs font-semibold" style={{ background: ink.petrol, color: "#fff" }}>
                 Enregistrer
@@ -3139,25 +3163,6 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
             + Enregistrer une commande
           </button>
         )}
-
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-            <div className="flex items-center gap-1.5 text-[11px] mb-1" style={{ color: ink.ink600 }}>
-              <Phone size={11} /> Contact
-            </div>
-            <div className="text-sm font-medium" style={{ color: ink.ink900 }}>
-              {client.telephone}
-            </div>
-          </div>
-          <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-            <div className="flex items-center gap-1.5 text-[11px] mb-1" style={{ color: ink.ink600 }}>
-              <Package size={11} /> Source
-            </div>
-            <div className="text-sm font-medium" style={{ color: ink.ink900 }}>
-              {client.source} · {client.dateEntree}
-            </div>
-          </div>
-        </div>
 
         {client.besoin && (
           <div className="rounded-2xl p-3 mb-6" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
@@ -3251,6 +3256,117 @@ const inputStyle = {
   borderRadius: "16px",
 };
 
+// ---------------------------------------------------------------------------
+// Modale : Enregistrer une commande (recherche client → ajoute une commande)
+// ---------------------------------------------------------------------------
+function AjouterCommandeModal({ clients, categories, onAddCommande, onAddCategorie, onClose }) {
+  const [recherche, setRecherche] = useState("");
+  const [clientChoisi, setClientChoisi] = useState(null);
+  const [desc, setDesc] = useState("");
+  const [montant, setMontant] = useState("");
+  const [montantPaye, setMontantPaye] = useState("");
+  const [categorieChoisie, setCategorieChoisie] = useState("");
+  const [nonConfirmee, setNonConfirmee] = useState(false);
+
+  const resultats = recherche.trim()
+    ? clients.filter(
+        (c) => c.nom.toLowerCase().includes(recherche.toLowerCase()) || c.id.toLowerCase().includes(recherche.toLowerCase())
+      ).slice(0, 20)
+    : clients.slice(0, 20);
+
+  function enregistrer() {
+    if (!clientChoisi || !desc.trim()) return;
+    if (!nonConfirmee && !montant) return;
+    onAddCommande(clientChoisi.id, {
+      id: Date.now(),
+      date: AUJOURD_HUI.toISOString().slice(0, 10),
+      description: desc.trim(),
+      montant: Number(montant || 0),
+      montantPaye: Number(montantPaye || 0),
+      categorie: categorieChoisie || null,
+      nonConfirmee,
+      couts: [],
+    });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.7)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-[32px] p-5 app-card max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-extrabold" style={{ color: ink.ink900 }}>Enregistrer une commande</h2>
+          <button onClick={onClose} className="p-3 rounded-2xl" style={{ background: ink.panelSoft }}>
+            <X size={18} style={{ color: ink.ink600 }} />
+          </button>
+        </div>
+
+        {!clientChoisi ? (
+          <>
+            <div className="flex items-center gap-2 rounded-2xl px-3 py-2 mb-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+              <Search size={14} style={{ color: ink.ink600 }} />
+              <input
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+                placeholder="Chercher un client par nom ou numéro..."
+                className="bg-transparent outline-none text-sm flex-1"
+                style={{ color: ink.ink900 }}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {resultats.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setClientChoisi(c)}
+                  className="w-full flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left"
+                  style={{ background: ink.panelSoft, border: `1px solid ${ink.line}` }}
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold truncate" style={{ color: ink.ink900 }}>{c.nom}</div>
+                    <div className="text-[11px]" style={{ color: ink.ink600 }}>{c.telephone || "—"}</div>
+                  </div>
+                  <Tampon id={c.id} small />
+                </button>
+              ))}
+              {resultats.length === 0 && (
+                <p className="text-xs text-center py-4" style={{ color: ink.ink600 }}>Aucun client trouvé.</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 rounded-2xl px-3 py-2 mb-4" style={{ background: ink.panelSoft, border: `1px solid ${ink.line}` }}>
+              <Tampon id={clientChoisi.id} small />
+              <span className="text-sm font-semibold" style={{ color: ink.ink900 }}>{clientChoisi.nom}</span>
+              <button onClick={() => setClientChoisi(null)} className="ml-auto text-[11px] underline" style={{ color: ink.bleu }}>
+                Changer
+              </button>
+            </div>
+            <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (ex. T-shirts x50)" className="w-full rounded-2xl px-3 py-2 text-sm mb-2" style={inputStyle} />
+            <SelecteurCategorie value={categorieChoisie} onChange={setCategorieChoisie} categories={categories} onAddCategorie={onAddCategorie} />
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input value={montant} onChange={(e) => setMontant(e.target.value)} type="number" placeholder="Montant (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
+              <input value={montantPaye} onChange={(e) => setMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
+            </div>
+            <label className="flex items-center gap-2 mb-4 text-xs font-medium cursor-pointer" style={{ color: ink.ochre }}>
+              <input type="checkbox" checked={nonConfirmee} onChange={(e) => setNonConfirmee(e.target.checked)} />
+              Commande non confirmée (pas encore de montant)
+            </label>
+            <button
+              onClick={enregistrer}
+              disabled={!desc.trim() || (!nonConfirmee && !montant)}
+              className="w-full rounded-2xl py-3 text-sm font-bold"
+              style={{ background: desc.trim() && (nonConfirmee || montant) ? ink.petrol : ink.ink300, color: "#fff" }}
+            >
+              Enregistrer la commande
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function NouveauContactModal({ clients, onAdd, onClose }) {
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
@@ -3271,7 +3387,7 @@ function NouveauContactModal({ clients, onAdd, onClose }) {
       source,
       besoin,
       dateEntree: AUJOURD_HUI.toISOString().slice(0, 10),
-      statut: "Nouveau contact",
+      statut: "Dossier à suivre",
       commandes: [],
     });
     onClose();
@@ -3358,6 +3474,13 @@ export default function CRMPrototype() {
   const [query, setQuery] = useState("");
   const [modalOuvert, setModalOuvert] = useState(false);
   const [importMessage, setImportMessage] = useState(null);
+  const [selectedModeGestion, setSelectedModeGestion] = useState(false);
+  const [ajouterCommandeOuvert, setAjouterCommandeOuvert] = useState(false);
+
+  function selectClient(c, gestion = false) {
+    setSelected(c);
+    setSelectedModeGestion(gestion);
+  }
   const [menuOuvert, setMenuOuvert] = useState(false);
   const [alerteAcquittee, setAlerteAcquittee] = useState(false);
   const [missionAlerteAcquittee, setMissionAlerteAcquittee] = useState(false);
@@ -3395,9 +3518,7 @@ export default function CRMPrototype() {
   }
 
   const clientsOnly = clients.filter((c) => c.type === "client");
-  const inactifsUrgents = clientsOnly.filter(
-    (c) => c.commandes.length > 0 && joursDepuis(derniereActivite(c)) > reglages.seuilInactiviteJours
-  );
+  const inactifsUrgents = [...clientsARelancer(clients, reglages.seuilInactiviteJours), ...commandesARelancer(clients, reglages.seuilCommandeInactiveJours)];
 
   const [maintenantTick, setMaintenantTick] = useState(() => Date.now());
   useEffect(() => {
@@ -3444,7 +3565,7 @@ export default function CRMPrototype() {
           storageGet("categories"),
         ]);
         setClients(rc || CLIENTS_INIT);
-        setReglages(rr || REGLAGES_DEFAUT);
+        setReglages(rr ? { ...REGLAGES_DEFAUT, ...rr } : REGLAGES_DEFAUT);
         setTemplates(rt || TEMPLATES_DEFAUT);
         setJournal(rj || []);
         setUtilisateurs(ru || []);
@@ -3544,7 +3665,7 @@ export default function CRMPrototype() {
             source: trouverChamp(row, "source") || "Autre",
             besoin: trouverChamp(row, "besoin"),
             dateEntree: AUJOURD_HUI.toISOString().slice(0, 10),
-            statut: "Nouveau contact",
+            statut: "Dossier à suivre",
             commandes: [],
           };
           nouveaux.push(nouveau);
@@ -3733,6 +3854,7 @@ export default function CRMPrototype() {
       nav.push(
         { id: "dashboard", label: "Tableau de bord", Icon: LayoutGrid },
         { id: "clients", label: "Commande", Icon: Users },
+        { id: "base_clients", label: "Client", Icon: Database },
         { id: "parcours", label: "Parcours", Icon: Package },
         { id: "fidelite", label: "Fidélité", Icon: Trophy },
         { id: "messages", label: "Messages de relance", Icon: MessageSquare },
@@ -3782,8 +3904,7 @@ export default function CRMPrototype() {
         >
           <div className="flex items-center gap-2 text-white text-xs font-semibold">
             <AlertTriangle size={16} className="animate-pulse shrink-0" />
-            {inactifsUrgents.length} client{inactifsUrgents.length > 1 ? "s" : ""} à relancer — plus de{" "}
-            {reglages.seuilInactiviteJours} jours sans activité
+            {inactifsUrgents.length} client{inactifsUrgents.length > 1 ? "s" : ""} à relancer (clients inactifs + commandes en attente)
           </div>
           <div className="flex items-center gap-2 ml-auto">
             <button
@@ -3952,6 +4073,7 @@ export default function CRMPrototype() {
             onSetDeadlineEtape={handleSetDeadlineEtape}
             onEditClient={handleEditClient}
             onDeleteClient={handleDeleteClient}
+            modeGestion={selectedModeGestion}
           />
         ) : loading ? (
           <p className="text-sm" style={{ color: ink.ink600 }}>Chargement…</p>
@@ -3963,33 +4085,31 @@ export default function CRMPrototype() {
             {view === "clients" && (isAdmin || hasRole("commercial")) && (
               <ClientsList
                 clients={clients}
-                onSelect={setSelected}
+                onSelect={selectClient}
                 filter={filter}
                 setFilter={setFilter}
                 query={query}
                 setQuery={setQuery}
-                onNouveauContact={() => setModalOuvert(true)}
-                onImportContacts={handleImportContacts}
-                importMessage={importMessage}
-                onClearImportMessage={() => setImportMessage(null)}
               />
             )}
-            {view === "parcours" && (isAdmin || hasRole("commercial")) && <Parcours clients={clients} onSelect={setSelected} />}
+            {view === "parcours" && (isAdmin || hasRole("commercial")) && <Parcours clients={clients} onSelect={selectClient} />}
             {view === "fidelite" && (isAdmin || hasRole("commercial")) && <Fidelite clients={clients} />}
-            {view === "base_clients" && isAdmin && (
+            {view === "base_clients" && (isAdmin || hasRole("commercial")) && (
               <BaseClients
                 clients={clients}
                 categories={categories}
-                onSelect={setSelected}
-                onImportContacts={handleImportContacts}
+                onSelect={(c) => selectClient(c, true)}
+                onImportContacts={isAdmin ? handleImportContacts : undefined}
                 importMessage={importMessage}
                 onClearImportMessage={() => setImportMessage(null)}
+                isAdmin={isAdmin}
+                onNouveauContact={() => setModalOuvert(true)}
               />
             )}
             {view === "commande_attente" && (isAdmin || hasRole("commercial")) && (
               <ClientsList
                 clients={clients}
-                onSelect={setSelected}
+                onSelect={selectClient}
                 filter={filter}
                 setFilter={setFilter}
                 query={query}
@@ -4000,7 +4120,7 @@ export default function CRMPrototype() {
             {view === "livraison_attente" && (isAdmin || hasRole("commercial")) && (
               <ClientsList
                 clients={clients}
-                onSelect={setSelected}
+                onSelect={selectClient}
                 filter={filter}
                 setFilter={setFilter}
                 query={query}
@@ -4009,7 +4129,7 @@ export default function CRMPrototype() {
               />
             )}
             {view === "a_relancer" && (isAdmin || hasRole("commercial")) && (
-              <ARelancerListe clients={clients} reglages={reglages} onSelect={setSelected} />
+              <ARelancerListe clients={clients} reglages={reglages} onSelect={selectClient} />
             )}
             {view === "bilan" && isAdmin && <Bilan clients={clients} />}
             {view === "reglages" && isAdmin && (
@@ -4072,12 +4192,21 @@ export default function CRMPrototype() {
       {modalOuvert && (
         <NouveauContactModal clients={clients} onAdd={handleAdd} onClose={() => setModalOuvert(false)} />
       )}
+      {ajouterCommandeOuvert && (
+        <AjouterCommandeModal
+          clients={clients}
+          categories={categories}
+          onAddCommande={handleAddCommande}
+          onAddCategorie={handleAddCategorie}
+          onClose={() => setAjouterCommandeOuvert(false)}
+        />
+      )}
       <BottomNav
         view={view}
         setView={setView}
         isAdmin={isAdmin}
         hasRole={hasRole}
-        onNouveauContact={() => setModalOuvert(true)}
+        onAjouterCommande={() => setAjouterCommandeOuvert(true)}
       />
       </div>
     </div>
