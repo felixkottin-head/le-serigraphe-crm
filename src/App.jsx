@@ -231,6 +231,17 @@ const URGENCE_OPTIONS = [
   { value: "tres_urgent", label: "Très urgent" },
 ];
 
+// Index aligné sur Date.getDay() (0 = dimanche ... 6 = samedi)
+const JOURS_SEMAINE = [
+  { value: 1, label: "Lundi" },
+  { value: 2, label: "Mardi" },
+  { value: 3, label: "Mercredi" },
+  { value: 4, label: "Jeudi" },
+  { value: 5, label: "Vendredi" },
+  { value: 6, label: "Samedi" },
+  { value: 0, label: "Dimanche" },
+];
+
 const POLE_STATUT = {
   graphiste: "Conception",
   production: "En production",
@@ -1676,27 +1687,57 @@ function Utilisateurs({ utilisateurs, onSave, categoriesUtilisateur, onSaveCateg
 // ---------------------------------------------------------------------------
 // Vue : Mission spécifique — accessible à tout le monde
 // ---------------------------------------------------------------------------
-function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, onDelete }) {
+function Missions({ missions, missionsRecurrentes, personnes, currentUser, isAdmin, onAdd, onAddRecurrente, onDeleteRecurrente, onToggle, onEdit, onDelete }) {
   const [destinataire, setDestinataire] = useState(personnes[0] || "");
   const [texte, setTexte] = useState("");
   const [urgence, setUrgence] = useState("normal");
   const [deadline, setDeadline] = useState("");
+  const [repetition, setRepetition] = useState("aucune");
+  const [jourSemaine, setJourSemaine] = useState(1);
+  const [heureRecurrente, setHeureRecurrente] = useState("08:00");
+  const [editionId, setEditionId] = useState(null);
+  const [editDeadline, setEditDeadline] = useState("");
   const personnesAffichees = isAdmin ? personnes : [currentUser.nom];
 
   function assigner() {
     if (!destinataire || !texte.trim()) return;
-    onAdd({
-      id: Date.now(),
-      assigneA: destinataire,
-      texte: texte.trim(),
-      statut: "a_faire",
-      urgence,
-      deadline: deadline || null,
-      creePar: currentUser.nom,
-    });
+    if (repetition === "aucune") {
+      onAdd({
+        id: Date.now(),
+        assigneA: destinataire,
+        texte: texte.trim(),
+        statut: "a_faire",
+        urgence,
+        deadline: deadline || null,
+        creePar: currentUser.nom,
+      });
+    } else {
+      onAddRecurrente({
+        id: "rec_" + Date.now(),
+        assigneA: destinataire,
+        texte: texte.trim(),
+        urgence,
+        type: repetition,
+        jour: repetition === "hebdomadaire" ? jourSemaine : null,
+        heure: heureRecurrente,
+        creePar: currentUser.nom,
+        derniereGeneration: null,
+      });
+    }
     setTexte("");
     setUrgence("normal");
     setDeadline("");
+    setRepetition("aucune");
+  }
+
+  function ouvrirEdition(m) {
+    setEditionId(m.id);
+    setEditDeadline(m.deadline ? m.deadline.slice(0, 16) : "");
+  }
+
+  function sauverEdition(id) {
+    onEdit(id, { deadline: editDeadline || null });
+    setEditionId(null);
   }
 
   return (
@@ -1719,15 +1760,44 @@ function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, 
               style={inputStyle}
             />
             <div>
-              <label className="text-[11px] font-medium block mb-1.5" style={{ color: ink.ink600 }}>Deadline (date et heure)</label>
-              <input
-                type="datetime-local"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className="w-full rounded-2xl px-3 py-2 text-sm"
-                style={inputStyle}
-              />
+              <label className="text-[11px] font-medium block mb-1.5" style={{ color: ink.ink600 }}>Répétition</label>
+              <select value={repetition} onChange={(e) => setRepetition(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle}>
+                <option value="aucune">Aucune — juste cette fois</option>
+                <option value="journalier">Chaque jour</option>
+                <option value="hebdomadaire">Chaque semaine</option>
+              </select>
             </div>
+
+            {repetition === "aucune" ? (
+              <div>
+                <label className="text-[11px] font-medium block mb-1.5" style={{ color: ink.ink600 }}>Deadline (date et heure)</label>
+                <input
+                  type="datetime-local"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  className="w-full rounded-2xl px-3 py-2 text-sm"
+                  style={inputStyle}
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {repetition === "hebdomadaire" && (
+                  <select value={jourSemaine} onChange={(e) => setJourSemaine(Number(e.target.value))} className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle}>
+                    {JOURS_SEMAINE.map((j) => (
+                      <option key={j.value} value={j.value}>{j.label}</option>
+                    ))}
+                  </select>
+                )}
+                <input
+                  type="time"
+                  value={heureRecurrente}
+                  onChange={(e) => setHeureRecurrente(e.target.value)}
+                  className={`w-full rounded-2xl px-3 py-2 text-sm ${repetition === "hebdomadaire" ? "" : "col-span-2"}`}
+                  style={inputStyle}
+                />
+              </div>
+            )}
+
             <div>
               <label className="text-[11px] font-medium block mb-1.5" style={{ color: ink.ink600 }}>Niveau d'urgence</label>
               <div className="flex flex-wrap gap-2">
@@ -1757,8 +1827,31 @@ function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, 
               className="w-full rounded-2xl py-2.5 text-sm font-semibold"
               style={{ background: texte.trim() ? ink.petrol : ink.ink300, color: "#fff" }}
             >
-              Assigner
+              {repetition === "aucune" ? "Assigner" : "Programmer cette mission récurrente"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {isAdmin && missionsRecurrentes.length > 0 && (
+        <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5" style={{ color: ink.ink900 }}>
+            Missions récurrentes ({missionsRecurrentes.length})
+          </h3>
+          <div className="space-y-2">
+            {missionsRecurrentes.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-2 rounded-2xl p-3" style={{ background: ink.panelSoft, border: `1px solid ${ink.line}` }}>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: ink.ink900 }}>{r.texte}</div>
+                  <div className="text-[11px]" style={{ color: ink.ink600 }}>
+                    {r.assigneA} — {r.type === "journalier" ? "chaque jour" : `chaque ${JOURS_SEMAINE.find((j) => j.value === r.jour)?.label.toLowerCase()}`} à {r.heure}
+                  </div>
+                </div>
+                <button onClick={() => onDeleteRecurrente(r.id)} className="shrink-0">
+                  <Trash2 size={14} style={{ color: ink.rouge }} />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1793,6 +1886,7 @@ function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, 
                   {mesMissions.map((m) => {
                     const coul = URGENCE_COLOR[m.urgence || "normal"];
                     const label = URGENCE_OPTIONS.find((u) => u.value === (m.urgence || "normal"))?.label;
+                    const enEdition = editionId === m.id;
                     return (
                       <div
                         key={m.id}
@@ -1822,7 +1916,12 @@ function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, 
                               {label}
                             </span>
                           )}
-                          {m.deadline && (
+                          {m.recurrenceId && (
+                            <span className="text-[10px] font-semibold inline-flex items-center gap-1 mt-1 ml-1 px-1.5 py-0.5 rounded" style={{ background: `${ink.bleu}1A`, color: ink.bleu }}>
+                              Récurrente
+                            </span>
+                          )}
+                          {!enEdition && m.deadline && (
                             <div
                               className="text-[11px] mt-1"
                               style={{ color: new Date(m.deadline) < new Date() && m.statut === "a_faire" ? ink.rouge : ink.ink600 }}
@@ -1831,11 +1930,33 @@ function Missions({ missions, personnes, currentUser, isAdmin, onAdd, onToggle, 
                               {new Date(m.deadline) < new Date() && m.statut === "a_faire" ? " — dépassée" : ""}
                             </div>
                           )}
+                          {enEdition && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <input
+                                type="datetime-local"
+                                value={editDeadline}
+                                onChange={(e) => setEditDeadline(e.target.value)}
+                                className="rounded-2xl px-2.5 py-1.5 text-xs"
+                                style={inputStyle}
+                              />
+                              <button onClick={() => sauverEdition(m.id)} className="text-[11px] font-semibold px-2.5 py-1.5 rounded-2xl" style={{ background: ink.petrol, color: "#fff" }}>
+                                OK
+                              </button>
+                              <button onClick={() => setEditionId(null)} className="text-[11px] font-semibold px-2 py-1.5 rounded-2xl" style={{ background: ink.canvasDeep, color: ink.ink600 }}>
+                                Annuler
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        {isAdmin && (
-                          <button onClick={() => onDelete(m.id)} className="shrink-0">
-                            <Trash2 size={14} style={{ color: ink.rouge }} />
-                          </button>
+                        {isAdmin && !enEdition && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={() => ouvrirEdition(m)}>
+                              <ClipboardList size={14} style={{ color: ink.bleu }} />
+                            </button>
+                            <button onClick={() => onDelete(m.id)}>
+                              <Trash2 size={14} style={{ color: ink.rouge }} />
+                            </button>
+                          </div>
                         )}
                       </div>
                     );
@@ -4094,6 +4215,7 @@ export default function CRMPrototype() {
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [adminAuth, setAdminAuth] = useState(ADMIN_AUTH_DEFAUT);
   const [missions, setMissions] = useState([]);
+  const [missionsRecurrentes, setMissionsRecurrentes] = useState([]);
   const [categories, setCategories] = useState(CATEGORIES_DEFAUT);
   const [categoriesUtilisateur, setCategoriesUtilisateur] = useState(CATEGORIES_UTILISATEUR_DEFAUT);
   const [loading, setLoading] = useState(true);
@@ -4211,7 +4333,7 @@ export default function CRMPrototype() {
   useEffect(() => {
     (async () => {
       try {
-        const [rc, rr, rt, rj, ru, ra, rm, rcat, rcu] = await Promise.all([
+        const [rc, rr, rt, rj, ru, ra, rm, rcat, rcu, rmr] = await Promise.all([
           storageGet("clients"),
           storageGet("reglages"),
           storageGet("templates"),
@@ -4221,6 +4343,7 @@ export default function CRMPrototype() {
           storageGet("missions"),
           storageGet("categories"),
           storageGet("categoriesUtilisateur"),
+          storageGet("missionsRecurrentes"),
         ]);
         setClients(rc || CLIENTS_INIT);
         setReglages(rr ? { ...REGLAGES_DEFAUT, ...rr } : REGLAGES_DEFAUT);
@@ -4231,6 +4354,7 @@ export default function CRMPrototype() {
         setMissions(rm || []);
         setCategories(rcat || CATEGORIES_DEFAUT);
         setCategoriesUtilisateur(rcu || CATEGORIES_UTILISATEUR_DEFAUT);
+        setMissionsRecurrentes(rmr || []);
       } catch (e) {
         setClients(CLIENTS_INIT);
       } finally {
@@ -4244,7 +4368,7 @@ export default function CRMPrototype() {
   useEffect(() => {
     const id = setInterval(async () => {
       try {
-        const [rc, rm, rj, ru, rcu, rr, rcat] = await Promise.all([
+        const [rc, rm, rj, ru, rcu, rr, rcat, rmr] = await Promise.all([
           storageGet("clients"),
           storageGet("missions"),
           storageGet("journal"),
@@ -4252,6 +4376,7 @@ export default function CRMPrototype() {
           storageGet("categoriesUtilisateur"),
           storageGet("reglages"),
           storageGet("categories"),
+          storageGet("missionsRecurrentes"),
         ]);
         if (rc) setClients(rc);
         if (rm) setMissions(rm);
@@ -4260,6 +4385,7 @@ export default function CRMPrototype() {
         if (rcu) setCategoriesUtilisateur(rcu);
         if (rr) setReglages({ ...REGLAGES_DEFAUT, ...rr });
         if (rcat) setCategories(rcat);
+        if (rmr) setMissionsRecurrentes(rmr);
       } catch (e) {}
     }, 12000);
     return () => clearInterval(id);
@@ -4539,9 +4665,68 @@ export default function CRMPrototype() {
     if (m) logAction(`A marqué la mission "${m.texte}" comme ${m.statut === "faite" ? "à faire" : "faite"}`);
   }
 
+  function handleEditMission(id, updates) {
+    const m = missions.find((x) => x.id === id);
+    const next = missions.map((x) => (x.id === id ? { ...x, ...updates } : x));
+    persistMissions(next);
+    logAction(`A modifié la deadline de la mission "${m?.texte}"`);
+  }
+
   function handleDeleteMission(id) {
     persistMissions(missions.filter((x) => x.id !== id));
   }
+
+  async function persistMissionsRecurrentes(next) {
+    setMissionsRecurrentes(next);
+    await storageSet("missionsRecurrentes", next);
+  }
+
+  function handleAddMissionRecurrente(template) {
+    persistMissionsRecurrentes([...missionsRecurrentes, template]);
+    const frequence = template.type === "journalier" ? "chaque jour" : `chaque ${JOURS_SEMAINE.find((j) => j.value === template.jour)?.label.toLowerCase()}`;
+    logAction(`A programmé une mission récurrente pour ${template.assigneA} (${frequence} à ${template.heure}) : "${template.texte}"`);
+  }
+
+  function handleDeleteMissionRecurrente(id) {
+    persistMissionsRecurrentes(missionsRecurrentes.filter((r) => r.id !== id));
+  }
+
+  // Génère automatiquement les prochaines occurrences des missions récurrentes, sans que
+  // l'admin ait à les recréer à chaque fois.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (missionsRecurrentes.length === 0) return;
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
+      const jourActuelJS = now.getDay();
+      const nouvellesMissions = [];
+      const templatesMaj = missionsRecurrentes.map((r) => {
+        if (!r.heure || r.derniereGeneration === todayStr) return r;
+        const [h, m] = r.heure.split(":").map(Number);
+        const heureAtteinte = now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m);
+        const jourOk = r.type === "journalier" || (r.type === "hebdomadaire" && r.jour === jourActuelJS);
+        if (jourOk && heureAtteinte) {
+          nouvellesMissions.push({
+            id: Date.now() + Math.random(),
+            assigneA: r.assigneA,
+            texte: r.texte,
+            statut: "a_faire",
+            urgence: r.urgence || "normal",
+            deadline: `${todayStr}T${r.heure}`,
+            creePar: r.creePar,
+            recurrenceId: r.id,
+          });
+          return { ...r, derniereGeneration: todayStr };
+        }
+        return r;
+      });
+      if (nouvellesMissions.length > 0) {
+        persistMissions([...missions, ...nouvellesMissions]);
+        persistMissionsRecurrentes(templatesMaj);
+      }
+    }, 60000);
+    return () => clearInterval(id);
+  }, [missionsRecurrentes, missions]);
 
   function roleLabel(r) {
     if (r === "admin") return "Administrateur";
@@ -4934,11 +5119,15 @@ export default function CRMPrototype() {
             {view === "missions" && (
               <Missions
                 missions={missions}
+                missionsRecurrentes={missionsRecurrentes}
                 personnes={personnesMissions}
                 currentUser={currentUser}
                 isAdmin={isAdmin}
                 onAdd={handleAddMission}
+                onAddRecurrente={handleAddMissionRecurrente}
+                onDeleteRecurrente={handleDeleteMissionRecurrente}
                 onToggle={handleToggleMission}
+                onEdit={handleEditMission}
                 onDelete={handleDeleteMission}
               />
             )}
