@@ -201,11 +201,27 @@ const ADMIN_AUTH_DEFAUT = { nom: "Félix", motDePasse: "serigraphe2026" };
 
 const CATEGORIES_DEFAUT = ["T-shirt", "Sachet", "Sac", "Tableau", "Casquette", "Carte de visite"];
 
-const ROLE_OPTIONS = [
-  { value: "commercial", label: "Commercial(e)" },
-  { value: "graphiste", label: "Pôle graphique" },
-  { value: "production", label: "Production" },
-  { value: "livraison", label: "Livraison" },
+// Catalogue de tous les onglets qu'un admin peut activer/désactiver par catégorie d'utilisateur
+const CATALOGUE_ONGLETS = [
+  { id: "dashboard", label: "Tableau de bord", Icon: LayoutGrid },
+  { id: "clients", label: "Commande", Icon: Users },
+  { id: "base_clients", label: "Client (base de données)", Icon: Database },
+  { id: "parcours", label: "Parcours", Icon: Package },
+  { id: "fidelite", label: "Fidélité", Icon: Trophy },
+  { id: "messages", label: "Messages de relance", Icon: MessageSquare },
+  { id: "bilan", label: "Bilan / Rapport d'activité", Icon: ClipboardList },
+  { id: "missions", label: "Mission spécifique", Icon: ListChecks },
+  { id: "file_graphiste", label: "Conception (pôle graphique)", Icon: Palette },
+  { id: "file_production", label: "Production", Icon: Boxes },
+  { id: "file_livraison", label: "Livraison", Icon: Truck },
+];
+
+// Catégories d'utilisateurs par défaut (rétro-compatibles avec les rôles historiques)
+const CATEGORIES_UTILISATEUR_DEFAUT = [
+  { id: "commercial", nom: "Commercial(e)", onglets: ["dashboard", "clients", "base_clients", "parcours", "fidelite", "messages", "bilan", "missions"] },
+  { id: "graphiste", nom: "Pôle graphique", onglets: ["dashboard", "file_graphiste", "bilan", "missions"] },
+  { id: "production", nom: "Production", onglets: ["dashboard", "file_production", "bilan", "missions"] },
+  { id: "livraison", nom: "Livraison", onglets: ["file_livraison", "missions"] },
 ];
 
 const URGENCE_OPTIONS = [
@@ -1414,7 +1430,115 @@ function Bilan({ clients }) {
 // ---------------------------------------------------------------------------
 // Vue : Utilisateurs (admin) — créer des comptes et leur affecter un rôle
 // ---------------------------------------------------------------------------
-function Utilisateurs({ utilisateurs, onSave }) {
+function GestionCategories({ categoriesUtilisateur, onSave }) {
+  const [nouvelleCatNom, setNouvelleCatNom] = useState("");
+  const [ouvertes, setOuvertes] = useState({});
+
+  function ajouterCategorie() {
+    const nom = nouvelleCatNom.trim();
+    if (!nom) return;
+    const id = "cat_" + Date.now();
+    onSave([...categoriesUtilisateur, { id, nom, onglets: [] }]);
+    setNouvelleCatNom("");
+    setOuvertes((o) => ({ ...o, [id]: true }));
+  }
+
+  function renommerCategorie(id, nom) {
+    onSave(categoriesUtilisateur.map((c) => (c.id === id ? { ...c, nom } : c)));
+  }
+
+  function toggleOnglet(id, ongletId) {
+    onSave(
+      categoriesUtilisateur.map((c) =>
+        c.id === id
+          ? { ...c, onglets: c.onglets.includes(ongletId) ? c.onglets.filter((o) => o !== ongletId) : [...c.onglets, ongletId] }
+          : c
+      )
+    );
+  }
+
+  function supprimerCategorie(id) {
+    onSave(categoriesUtilisateur.filter((c) => c.id !== id));
+  }
+
+  return (
+    <div className="rounded-3xl p-4 space-y-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+      <h3 className="text-sm font-semibold" style={{ color: ink.ink900 }}>Catégories d'utilisateurs</h3>
+      <p className="text-xs" style={{ color: ink.ink600 }}>
+        Crée autant de catégories que tu veux (ex. "Chargé de livraison", "Autre collaborateur") et choisis, pour chacune,
+        quels onglets s'affichent chez les personnes qui l'ont.
+      </p>
+
+      <div className="space-y-2">
+        {categoriesUtilisateur.map((cat) => {
+          const ouverte = !!ouvertes[cat.id];
+          return (
+            <div key={cat.id} className="rounded-2xl overflow-hidden" style={{ background: ink.panelSoft, border: `1px solid ${ink.line}` }}>
+              <div className="flex items-center gap-2 p-2.5">
+                <input
+                  value={cat.nom}
+                  onChange={(e) => renommerCategorie(cat.id, e.target.value)}
+                  className="flex-1 bg-transparent text-sm font-semibold outline-none px-1"
+                  style={{ color: ink.ink900 }}
+                />
+                <span className="text-[10px] px-2 py-1 rounded-full" style={{ background: ink.canvasDeep, color: ink.ink600 }}>
+                  {cat.onglets.length} onglet{cat.onglets.length > 1 ? "s" : ""}
+                </span>
+                <button onClick={() => setOuvertes((o) => ({ ...o, [cat.id]: !ouverte }))} className="p-1.5 rounded-xl" style={{ background: ink.canvasDeep }}>
+                  <ChevronRight size={13} className={ouverte ? "rotate-90" : ""} style={{ color: ink.ink600 }} />
+                </button>
+                <button onClick={() => supprimerCategorie(cat.id)} className="p-1.5 rounded-xl" style={{ background: ink.canvasDeep }}>
+                  <Trash2 size={13} style={{ color: ink.rouge }} />
+                </button>
+              </div>
+              {ouverte && (
+                <div className="flex flex-wrap gap-1.5 p-2.5 pt-0">
+                  {CATALOGUE_ONGLETS.map((o) => {
+                    const actif = cat.onglets.includes(o.id);
+                    return (
+                      <button
+                        key={o.id}
+                        onClick={() => toggleOnglet(cat.id, o.id)}
+                        className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-full"
+                        style={{
+                          background: actif ? ink.petrol : ink.canvasDeep,
+                          color: actif ? "#fff" : ink.ink600,
+                          border: `1px solid ${actif ? ink.petrol : ink.line}`,
+                        }}
+                      >
+                        <o.Icon size={11} />
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {categoriesUtilisateur.length === 0 && (
+          <p className="text-xs" style={{ color: ink.ink600 }}>Aucune catégorie pour l'instant.</p>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <input
+          value={nouvelleCatNom}
+          onChange={(e) => setNouvelleCatNom(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && ajouterCategorie()}
+          placeholder="Nom de la nouvelle catégorie (ex. Chargé de livraison)"
+          className="flex-1 rounded-2xl px-3 py-2 text-sm"
+          style={inputStyle}
+        />
+        <button onClick={ajouterCategorie} className="shrink-0 rounded-2xl px-4 py-2 text-sm font-semibold" style={{ background: ink.petrol, color: "#fff" }}>
+          + Catégorie
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Utilisateurs({ utilisateurs, onSave, categoriesUtilisateur, onSaveCategoriesUtilisateur }) {
   const [nom, setNom] = useState("");
   const [motDePasse, setMotDePasse] = useState("");
   const [rolesChoisis, setRolesChoisis] = useState([]);
@@ -1438,6 +1562,8 @@ function Utilisateurs({ utilisateurs, onSave }) {
 
   return (
     <div className="space-y-4">
+      <GestionCategories categoriesUtilisateur={categoriesUtilisateur} onSave={onSaveCategoriesUtilisateur} />
+
       <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
         <h3 className="text-sm font-semibold mb-3" style={{ color: ink.ink900 }}>Ajouter un utilisateur</h3>
         <div className="space-y-2.5">
@@ -1457,15 +1583,15 @@ function Utilisateurs({ utilisateurs, onSave }) {
           />
           <div>
             <label className="text-[11px] font-medium block mb-1.5" style={{ color: ink.ink600 }}>
-              Accès (un ou plusieurs)
+              Catégorie(s) — une ou plusieurs
             </label>
             <div className="flex flex-wrap gap-2">
-              {ROLE_OPTIONS.map((r) => {
-                const actif = rolesChoisis.includes(r.value);
+              {categoriesUtilisateur.map((r) => {
+                const actif = rolesChoisis.includes(r.id);
                 return (
                   <button
-                    key={r.value}
-                    onClick={() => toggleRole(r.value)}
+                    key={r.id}
+                    onClick={() => toggleRole(r.id)}
                     className="text-xs font-medium px-3 py-1.5 rounded-2xl"
                     style={{
                       background: actif ? ink.petrol : ink.canvasDeep,
@@ -1473,10 +1599,13 @@ function Utilisateurs({ utilisateurs, onSave }) {
                       border: `1px solid ${actif ? ink.petrol : ink.line}`,
                     }}
                   >
-                    {r.label}
+                    {r.nom}
                   </button>
                 );
               })}
+              {categoriesUtilisateur.length === 0 && (
+                <span className="text-xs" style={{ color: ink.ink600 }}>Crée d'abord une catégorie ci-dessus.</span>
+              )}
             </div>
           </div>
           <button
@@ -1506,7 +1635,7 @@ function Utilisateurs({ utilisateurs, onSave }) {
               <div>
                 <div className="text-sm font-semibold" style={{ color: ink.ink900 }}>{u.nom}</div>
                 <div className="text-[11px]" style={{ color: ink.ink600 }}>
-                  {(u.roles || []).map((r) => ROLE_OPTIONS.find((o) => o.value === r)?.label).join(" · ")}
+                  {(u.roles || []).map((r) => categoriesUtilisateur.find((o) => o.id === r)?.nom || r).join(" · ")}
                 </div>
               </div>
               <button onClick={() => supprimer(u.id)} className="p-2 rounded-2xl" style={{ background: ink.canvasDeep }}>
@@ -2274,22 +2403,19 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) 
 }
 
 
-function BottomNav({ view, setView, isAdmin, hasRole, onAjouterCommande }) {
-  let homeId = "dashboard";
-  if (!isAdmin && !hasRole("commercial")) {
-    if (hasRole("graphiste")) homeId = "dashboard_graphiste";
-    else if (hasRole("production")) homeId = "dashboard_production";
-    else if (hasRole("livraison")) homeId = "file_livraison";
-    else homeId = "missions";
-  }
-  const commandeEnabled = isAdmin || hasRole("commercial");
+function BottomNav({ view, setView, isAdmin, hasRole, onglets = [], onAjouterCommande }) {
+  const commandeEnabled = isAdmin || onglets.includes("clients");
+  let homeId = isAdmin || onglets.includes("dashboard") ? "dashboard" : onglets[0] || "missions";
   const commandeId = commandeEnabled
     ? "clients"
-    : hasRole("graphiste")
+    : onglets.includes("file_graphiste")
     ? "file_graphiste"
-    : hasRole("production")
+    : onglets.includes("file_production")
     ? "file_production"
+    : onglets.includes("file_livraison")
+    ? "file_livraison"
     : homeId;
+  const bilanDisponible = isAdmin || onglets.includes("bilan") || onglets.includes("file_graphiste") || onglets.includes("file_production") || onglets.includes("file_livraison");
 
   const items = [
     { id: homeId, label: "Accueil", Icon: LayoutGrid, action: () => setView(homeId) },
@@ -2301,19 +2427,15 @@ function BottomNav({ view, setView, isAdmin, hasRole, onAjouterCommande }) {
     },
     isAdmin
       ? { id: "base_clients", label: "Client", Icon: Database, center: true, action: () => setView("base_clients") }
-      : {
-          id: "create",
-          label: commandeEnabled ? "Enregistrer" : "Mission",
-          Icon: Plus,
-          center: true,
-          action: commandeEnabled ? onAjouterCommande : () => setView("missions"),
-        },
+      : commandeEnabled
+      ? { id: "create", label: "Enregistrer", Icon: Plus, center: true, action: onAjouterCommande }
+      : { id: "missions", label: "Missions", Icon: ListChecks, center: true, action: () => setView("missions") },
     { id: "missions", label: "Missions", Icon: ListChecks, action: () => setView("missions") },
     {
-      id: isAdmin ? "bilan" : hasRole("commercial") ? "monbilan" : "missions",
-      label: isAdmin || hasRole("commercial") ? "Bilan" : "Plus",
-      Icon: isAdmin || hasRole("commercial") ? FileBarChart : ClipboardList,
-      action: () => setView(isAdmin ? "bilan" : hasRole("commercial") ? "monbilan" : "missions"),
+      id: "bilan",
+      label: bilanDisponible ? "Bilan" : "Plus",
+      Icon: bilanDisponible ? FileBarChart : ClipboardList,
+      action: () => setView(bilanDisponible ? "bilan" : "missions"),
     },
   ];
 
@@ -2428,7 +2550,7 @@ function GraphisteDashboard({ clients, journal, currentUser, setView }) {
       </div>
 
       <button
-        onClick={() => setView("monbilan")}
+        onClick={() => setView("bilan")}
         className="w-full flex items-center justify-between rounded-2xl p-4"
         style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
       >
@@ -2537,7 +2659,7 @@ function ProductionDashboard({ clients, journal, currentUser, setView, onAjouter
       <BesoinsParticuliers journal={journal} currentUser={currentUser} onAjouter={onAjouterObservation} />
 
       <button
-        onClick={() => setView("bilan_production")}
+        onClick={() => setView("bilan")}
         className="w-full flex items-center justify-between rounded-2xl p-4"
         style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
       >
@@ -2554,12 +2676,17 @@ function ProductionDashboard({ clients, journal, currentUser, setView, onAjouter
 // ---------------------------------------------------------------------------
 // Vue : Rapport d'activité de la production
 // ---------------------------------------------------------------------------
-function BilanProduction({ clients, journal, currentUser, onAjouterObservation }) {
+function BilanProduction({ clients, journal, currentUser, onAjouterObservation, pole = "production" }) {
+  const statutCible = POLE_STATUT[pole];
+  const titrePole = POLE_LABEL[pole] || pole;
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const mesActions = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui);
-  const commandesTraitees = mesActions.filter((a) => a.action.startsWith('A terminé "En production"'));
+  const commandesTraitees =
+    pole === "livraison"
+      ? mesActions.filter((a) => a.action.startsWith("A livré la commande de"))
+      : mesActions.filter((a) => a.action.startsWith(`A terminé "${statutCible}"`));
   const besoins = mesActions.filter((a) => a.action.startsWith("A signalé un besoin particulier"));
-  const commandesRestantes = commandesParStatut(clients, ["En production"]);
+  const commandesRestantes = commandesParStatut(clients, [statutCible]);
   const [copie, setCopie] = useState(false);
 
   const detailRestantes = commandesRestantes
@@ -2567,7 +2694,7 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation }
     .join("\n");
 
   const rapport =
-    `Rapport d'activité — Production — ${currentUser.nom} — ${aujourdhui}\n\n` +
+    `Rapport d'activité — ${titrePole} — ${currentUser.nom} — ${aujourdhui}\n\n` +
     `Commandes traitées aujourd'hui (${commandesTraitees.length}) :\n` +
     (commandesTraitees.length ? commandesTraitees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
     `\n\nCommandes restant à traiter (${commandesRestantes.length}) :\n` +
@@ -2632,6 +2759,70 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation }
         <button onClick={copier} className="mt-3 flex items-center gap-1.5 rounded-2xl px-3 py-2 text-xs font-semibold" style={{ background: ink.petrol, color: "#fff" }}>
           {copie ? <Check size={13} /> : <Copy size={13} />} {copie ? "Copié !" : "Copier le rapport"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Vue : Tableau de bord générique (catégories d'utilisateurs personnalisées)
+// ---------------------------------------------------------------------------
+function TableauDeBordGenerique({ clients, journal, missions, currentUser, onglets, setView }) {
+  const mesMissions = missions.filter((m) => m.statut === "a_faire" && m.assigneA === currentUser.nom);
+  const raccourcis = [
+    { onglet: "file_graphiste", pole: "graphiste", label: "Conception", color: ink.bleu },
+    { onglet: "file_production", pole: "production", label: "Production", color: ink.petrol },
+    { onglet: "file_livraison", pole: "livraison", label: "Livraison", color: "#5FA85B" },
+  ].filter((r) => onglets.includes(r.onglet));
+
+  return (
+    <div className="space-y-5 pb-4">
+      <MessageDuJour nom={currentUser.nom} pole={raccourcis[0]?.pole || "commercial"} />
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold mb-1" style={{ color: ink.ink900 }}>
+          Salut {currentUser.nom} 👋
+        </h1>
+        <p className="text-sm" style={{ color: ink.ink600 }}>Voici ton activité du jour.</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {onglets.includes("missions") && (
+          <button
+            onClick={() => setView("missions")}
+            className="rounded-2xl p-4 text-left"
+            style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
+          >
+            <ListChecks size={18} style={{ color: ink.petrol }} className="mb-2" />
+            <div className="text-2xl font-extrabold" style={{ color: ink.ink900 }}>{mesMissions.length}</div>
+            <div className="text-xs" style={{ color: ink.ink600 }}>Mission(s) à faire</div>
+          </button>
+        )}
+        {raccourcis.map((r) => {
+          const n = commandesParStatut(clients, [POLE_STATUT[r.pole]]).length;
+          return (
+            <button
+              key={r.onglet}
+              onClick={() => setView(r.onglet)}
+              className="rounded-2xl p-4 text-left"
+              style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
+            >
+              <Truck size={18} style={{ color: r.color }} className="mb-2" />
+              <div className="text-2xl font-extrabold" style={{ color: ink.ink900 }}>{n}</div>
+              <div className="text-xs" style={{ color: ink.ink600 }}>{r.label} en attente</div>
+            </button>
+          );
+        })}
+        {onglets.includes("bilan") && (
+          <button
+            onClick={() => setView("bilan")}
+            className="rounded-2xl p-4 text-left"
+            style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
+          >
+            <ClipboardList size={18} style={{ color: ink.ochre }} className="mb-2" />
+            <div className="text-sm font-semibold" style={{ color: ink.ink900 }}>Mon bilan</div>
+            <div className="text-xs" style={{ color: ink.ink600 }}>Voir le rapport d'activité</div>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -3690,6 +3881,7 @@ export default function CRMPrototype() {
   const [adminAuth, setAdminAuth] = useState(ADMIN_AUTH_DEFAUT);
   const [missions, setMissions] = useState([]);
   const [categories, setCategories] = useState(CATEGORIES_DEFAUT);
+  const [categoriesUtilisateur, setCategoriesUtilisateur] = useState(CATEGORIES_UTILISATEUR_DEFAUT);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("tous");
@@ -3776,7 +3968,7 @@ export default function CRMPrototype() {
   useEffect(() => {
     (async () => {
       try {
-        const [rc, rr, rt, rj, ru, ra, rm, rcat] = await Promise.all([
+        const [rc, rr, rt, rj, ru, ra, rm, rcat, rcu] = await Promise.all([
           storageGet("clients"),
           storageGet("reglages"),
           storageGet("templates"),
@@ -3785,6 +3977,7 @@ export default function CRMPrototype() {
           storageGet("adminAuth"),
           storageGet("missions"),
           storageGet("categories"),
+          storageGet("categoriesUtilisateur"),
         ]);
         setClients(rc || CLIENTS_INIT);
         setReglages(rr ? { ...REGLAGES_DEFAUT, ...rr } : REGLAGES_DEFAUT);
@@ -3794,6 +3987,7 @@ export default function CRMPrototype() {
         setAdminAuth(ra || ADMIN_AUTH_DEFAUT);
         setMissions(rm || []);
         setCategories(rcat || CATEGORIES_DEFAUT);
+        setCategoriesUtilisateur(rcu || CATEGORIES_UTILISATEUR_DEFAUT);
       } catch (e) {
         setClients(CLIENTS_INIT);
       } finally {
@@ -3835,6 +4029,11 @@ export default function CRMPrototype() {
   async function persistCategories(next) {
     setCategories(next);
     await storageSet("categories", next);
+  }
+
+  async function persistCategoriesUtilisateur(next) {
+    setCategoriesUtilisateur(next);
+    await storageSet("categoriesUtilisateur", next);
   }
 
   function handleAddCategorie(nom) {
@@ -4053,7 +4252,8 @@ export default function CRMPrototype() {
 
   function roleLabel(r) {
     if (r === "admin") return "Administrateur";
-    if (r === "commercial") return "Commercial(e)";
+    const cat = categoriesUtilisateur.find((c) => c.id === r);
+    if (cat) return cat.nom;
     return POLE_LABEL[r] || r;
   }
 
@@ -4062,6 +4262,11 @@ export default function CRMPrototype() {
   const personnesMissions = [adminAuth.nom, ...utilisateurs.map((u) => u.nom)].filter(
     (n, i, arr) => arr.indexOf(n) === i
   );
+
+  // Onglets activés pour l'utilisateur courant = union des onglets de toutes ses catégories
+  const onglets = isAdmin
+    ? []
+    : [...new Set(categoriesUtilisateur.filter((c) => currentUser?.roles?.includes(c.id)).flatMap((c) => c.onglets))];
 
   const navAdmin = [
     { id: "dashboard", label: "Tableau de bord", Icon: LayoutGrid },
@@ -4075,41 +4280,23 @@ export default function CRMPrototype() {
     { id: "utilisateurs", label: "Utilisateurs", Icon: UserCog },
   ];
 
+  // Résout chaque onglet du catalogue vers son identifiant de vue réel + libellé, selon le profil de l'utilisateur
   let nav = [];
   if (isAdmin) {
     nav = navAdmin;
   } else {
-    if (hasRole("commercial")) {
-      nav.push(
-        { id: "dashboard", label: "Tableau de bord", Icon: LayoutGrid },
-        { id: "clients", label: "Commande", Icon: Users },
-        { id: "base_clients", label: "Client", Icon: Database },
-        { id: "parcours", label: "Parcours", Icon: Package },
-        { id: "fidelite", label: "Fidélité", Icon: Trophy },
-        { id: "messages", label: "Messages de relance", Icon: MessageSquare },
-        { id: "monbilan", label: "Mon bilan du jour", Icon: ClipboardList }
-      );
-    }
-    if (hasRole("graphiste")) {
-      nav.push({ id: "dashboard_graphiste", label: "Tableau de bord", Icon: LayoutGrid });
-      nav.push({ id: "file_graphiste", label: "Commande", Icon: Palette });
-      nav.push({ id: "monbilan", label: "Mon bilan d'activité", Icon: ClipboardList });
-    }
-    if (hasRole("production")) {
-      nav.push({ id: "dashboard_production", label: "Tableau de bord", Icon: LayoutGrid });
-      nav.push({ id: "file_production", label: "Commande", Icon: Boxes });
-      nav.push({ id: "bilan_production", label: "Rapport d'activité", Icon: ClipboardList });
-    }
-    if (hasRole("livraison")) nav.push({ id: "file_livraison", label: "File — Livraison", Icon: Truck });
-    nav.push({ id: "missions", label: "Mission spécifique", Icon: ListChecks });
+    nav = CATALOGUE_ONGLETS.filter((o) => onglets.includes(o.id));
   }
 
   function defaultViewFor(roles) {
-    if (roles.includes("admin") || roles.includes("commercial")) return "dashboard";
-    if (roles.includes("graphiste")) return "dashboard_graphiste";
-    if (roles.includes("production")) return "dashboard_production";
-    if (roles.includes("livraison")) return "file_livraison";
-    return "missions";
+    if (roles.includes("admin")) return "dashboard";
+    const mesCategories = categoriesUtilisateur.filter((c) => roles.includes(c.id));
+    const mesOnglets = [...new Set(mesCategories.flatMap((c) => c.onglets))];
+    const ordrePriorite = ["dashboard", "clients", "file_graphiste", "file_production", "file_livraison", "missions", "bilan"];
+    for (const o of ordrePriorite) {
+      if (mesOnglets.includes(o)) return o;
+    }
+    return mesOnglets[0] || "missions";
   }
 
   if (!currentUser) {
@@ -4126,7 +4313,7 @@ export default function CRMPrototype() {
     <div className="app-shell min-h-screen w-full flex" style={{ background: ink.canvas }}>
       <GlobalStyle />
 
-      {hasRole("commercial") && inactifsUrgents.length > 0 && !alerteAcquittee && (
+      {onglets.includes("clients") && inactifsUrgents.length > 0 && !alerteAcquittee && (
         <div
           className="fixed top-0 left-0 right-0 z-40 flex flex-wrap items-center justify-between gap-2 px-4 py-3"
           style={{ background: ink.rouge }}
@@ -4159,7 +4346,7 @@ export default function CRMPrototype() {
           className="fixed left-0 right-0 z-40 flex flex-wrap items-center justify-between gap-2 px-4 py-3"
           style={{
             background: ink.ochre,
-            top: hasRole("commercial") && inactifsUrgents.length > 0 && !alerteAcquittee ? 52 : 0,
+            top: onglets.includes("clients") && inactifsUrgents.length > 0 && !alerteAcquittee ? 52 : 0,
           }}
         >
           <div className="flex items-center gap-2 text-white text-xs font-semibold">
@@ -4189,7 +4376,7 @@ export default function CRMPrototype() {
         className="w-full flex"
         style={{
           paddingTop:
-            (hasRole("commercial") && inactifsUrgents.length > 0 && !alerteAcquittee ? 52 : 0) +
+            (onglets.includes("clients") && inactifsUrgents.length > 0 && !alerteAcquittee ? 52 : 0) +
             (missionsSonnantes.length > 0 && !missionAlerteAcquittee ? 52 : 0),
         }}
       >
@@ -4308,10 +4495,22 @@ export default function CRMPrototype() {
           <p className="text-sm" style={{ color: ink.ink600 }}>Chargement…</p>
         ) : (
           <>
-            {view === "dashboard" && (isAdmin || hasRole("commercial")) && (
+            {view === "dashboard" && isAdmin && (
               <Dashboard clients={clients} reglages={reglages} currentUser={currentUser} missions={missions} setView={setView} />
             )}
-            {view === "clients" && (isAdmin || hasRole("commercial")) && (
+            {view === "dashboard" && !isAdmin && onglets.includes("clients") && (
+              <Dashboard clients={clients} reglages={reglages} currentUser={currentUser} missions={missions} setView={setView} />
+            )}
+            {view === "dashboard" && !isAdmin && !onglets.includes("clients") && onglets.includes("file_graphiste") && (
+              <GraphisteDashboard clients={clients} journal={journal} currentUser={currentUser} setView={setView} />
+            )}
+            {view === "dashboard" && !isAdmin && !onglets.includes("clients") && !onglets.includes("file_graphiste") && onglets.includes("file_production") && (
+              <ProductionDashboard clients={clients} journal={journal} currentUser={currentUser} setView={setView} onAjouterObservation={handleAjouterObservation} />
+            )}
+            {view === "dashboard" && !isAdmin && !onglets.includes("clients") && !onglets.includes("file_graphiste") && !onglets.includes("file_production") && (
+              <TableauDeBordGenerique clients={clients} journal={journal} missions={missions} currentUser={currentUser} onglets={onglets} setView={setView} />
+            )}
+            {view === "clients" && (isAdmin || onglets.includes("clients")) && (
               <ClientsList
                 clients={clients}
                 onSelect={selectClient}
@@ -4321,9 +4520,9 @@ export default function CRMPrototype() {
                 setQuery={setQuery}
               />
             )}
-            {view === "parcours" && (isAdmin || hasRole("commercial")) && <Parcours clients={clients} onSelect={selectClient} />}
-            {view === "fidelite" && (isAdmin || hasRole("commercial")) && <Fidelite clients={clients} reglages={reglages} />}
-            {view === "base_clients" && (isAdmin || hasRole("commercial")) && (
+            {view === "parcours" && (isAdmin || onglets.includes("parcours")) && <Parcours clients={clients} onSelect={selectClient} />}
+            {view === "fidelite" && (isAdmin || onglets.includes("fidelite")) && <Fidelite clients={clients} reglages={reglages} />}
+            {view === "base_clients" && (isAdmin || onglets.includes("base_clients")) && (
               <BaseClients
                 clients={clients}
                 categories={categories}
@@ -4335,7 +4534,7 @@ export default function CRMPrototype() {
                 onNouveauContact={() => setModalOuvert(true)}
               />
             )}
-            {view === "commande_attente" && (isAdmin || hasRole("commercial")) && (
+            {view === "commande_attente" && (isAdmin || onglets.includes("clients")) && (
               <ClientsList
                 clients={clients}
                 onSelect={selectClient}
@@ -4346,7 +4545,7 @@ export default function CRMPrototype() {
                 statutForce={["Conception", "En production"]}
               />
             )}
-            {view === "livraison_attente" && (isAdmin || hasRole("commercial")) && (
+            {view === "livraison_attente" && (isAdmin || onglets.includes("clients")) && (
               <ClientsList
                 clients={clients}
                 onSelect={selectClient}
@@ -4357,7 +4556,7 @@ export default function CRMPrototype() {
                 statutForce={["Prêt / à livrer"]}
               />
             )}
-            {view === "a_relancer" && (isAdmin || hasRole("commercial")) && (
+            {view === "a_relancer" && (isAdmin || onglets.includes("clients")) && (
               <ARelancerListe clients={clients} reglages={reglages} onSelect={selectClient} />
             )}
             {view === "bilan" && isAdmin && <Bilan clients={clients} />}
@@ -4373,17 +4572,27 @@ export default function CRMPrototype() {
             )}
             {view === "journal" && isAdmin && <Journal journal={journal} />}
             {view === "utilisateurs" && isAdmin && (
-              <Utilisateurs utilisateurs={utilisateurs} onSave={persistUtilisateurs} />
+              <Utilisateurs
+                utilisateurs={utilisateurs}
+                onSave={persistUtilisateurs}
+                categoriesUtilisateur={categoriesUtilisateur}
+                onSaveCategoriesUtilisateur={persistCategoriesUtilisateur}
+              />
             )}
-            {view === "messages" && hasRole("commercial") && <Messages templates={templates} onSave={persistTemplates} />}
-            {view === "monbilan" && hasRole("commercial") && <MonBilan journal={journal} currentUser={currentUser} />}
-            {view === "monbilan" && !hasRole("commercial") && hasRole("graphiste") && (
+            {view === "messages" && !isAdmin && onglets.includes("messages") && <Messages templates={templates} onSave={persistTemplates} />}
+            {view === "bilan" && !isAdmin && onglets.includes("file_graphiste") && (
               <BilanGraphiste clients={clients} journal={journal} currentUser={currentUser} />
             )}
-            {view === "dashboard_graphiste" && hasRole("graphiste") && (
-              <GraphisteDashboard clients={clients} journal={journal} currentUser={currentUser} setView={setView} />
+            {view === "bilan" && !isAdmin && !onglets.includes("file_graphiste") && onglets.includes("file_production") && (
+              <BilanProduction clients={clients} journal={journal} currentUser={currentUser} onAjouterObservation={handleAjouterObservation} pole="production" />
             )}
-            {view === "file_graphiste" && hasRole("graphiste") && (
+            {view === "bilan" && !isAdmin && !onglets.includes("file_graphiste") && !onglets.includes("file_production") && onglets.includes("file_livraison") && (
+              <BilanProduction clients={clients} journal={journal} currentUser={currentUser} onAjouterObservation={handleAjouterObservation} pole="livraison" />
+            )}
+            {view === "bilan" && !isAdmin && !onglets.includes("file_graphiste") && !onglets.includes("file_production") && !onglets.includes("file_livraison") && onglets.includes("bilan") && (
+              <MonBilan journal={journal} currentUser={currentUser} />
+            )}
+            {view === "file_graphiste" && (isAdmin || onglets.includes("file_graphiste")) && (
               <FileAttente
                 clients={clients}
                 pole="graphiste"
@@ -4391,16 +4600,10 @@ export default function CRMPrototype() {
                 onImportVisuel={handleImportVisuel}
               />
             )}
-            {view === "dashboard_production" && hasRole("production") && (
-              <ProductionDashboard clients={clients} journal={journal} currentUser={currentUser} setView={setView} onAjouterObservation={handleAjouterObservation} />
-            )}
-            {view === "file_production" && hasRole("production") && (
+            {view === "file_production" && (isAdmin || onglets.includes("file_production")) && (
               <FileAttente clients={clients} pole="production" onValider={(c, cmd) => handleValiderEtape("production", c, cmd)} currentUser={currentUser} />
             )}
-            {view === "bilan_production" && hasRole("production") && (
-              <BilanProduction clients={clients} journal={journal} currentUser={currentUser} onAjouterObservation={handleAjouterObservation} />
-            )}
-            {view === "file_livraison" && hasRole("livraison") && (
+            {view === "file_livraison" && (isAdmin || onglets.includes("file_livraison")) && (
               <FileAttente clients={clients} pole="livraison" onValider={(c, cmd) => handleValiderEtape("livraison", c, cmd)} currentUser={currentUser} />
             )}
             {view === "missions" && (
@@ -4436,6 +4639,7 @@ export default function CRMPrototype() {
         setView={setView}
         isAdmin={isAdmin}
         hasRole={hasRole}
+        onglets={onglets}
         onAjouterCommande={() => setAjouterCommandeOuvert(true)}
       />
       </div>
