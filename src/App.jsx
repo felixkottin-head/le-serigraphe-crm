@@ -189,7 +189,13 @@ const URGENCE_COLOR = {
 
 const SOURCE_ICON = { Facebook: Facebook, WhatsApp: MessageCircle, TikTok: Music2 };
 
-const REGLAGES_DEFAUT = { seuilInactiviteJours: 14, seuilCommandeInactiveJours: 3, frequenceRelance: "hebdomadaire" };
+const REGLAGES_DEFAUT = {
+  seuilInactiviteJours: 14,
+  seuilCommandeInactiveJours: 3,
+  frequenceRelance: "hebdomadaire",
+  fideliteNombreCommandes: 3,
+  fidelitePeriodeMois: 6,
+};
 
 const ADMIN_AUTH_DEFAUT = { nom: "Félix", motDePasse: "serigraphe2026" };
 
@@ -260,9 +266,9 @@ const CLIENTS_INIT = [
     dateEntree: "2026-05-03",
     statut: "Livré",
     commandes: [
-      { id: 1, date: "2026-05-10", description: "T-shirts événement (50 pièces)", montant: 85000, montantPaye: 85000, couts: [] },
-      { id: 2, date: "2026-06-20", description: "Casquettes brodées (30 pièces)", montant: 120000, montantPaye: 60000, couts: [] },
-      { id: 3, date: "2026-07-22", description: "Réassort T-shirts", montant: 90000, montantPaye: 90000, couts: [
+      { id: 1, date: "2026-05-10", description: "T-shirts événement (50 pièces)", montant: 85000, montantPaye: 85000, statut: "Livré", couts: [] },
+      { id: 2, date: "2026-06-20", description: "Casquettes brodées (30 pièces)", montant: 120000, montantPaye: 60000, statut: "Livré", couts: [] },
+      { id: 3, date: "2026-07-22", description: "Réassort T-shirts", montant: 90000, montantPaye: 90000, statut: "Livré", couts: [
         { id: 1, description: "Achat T-shirts", montant: 35000 },
         { id: 2, description: "Déplacement fournisseur", montant: 5000 },
       ] },
@@ -277,7 +283,7 @@ const CLIENTS_INIT = [
     dateEntree: "2026-06-11",
     statut: "En production",
     commandes: [
-      { id: 1, date: "2026-06-15", description: "Uniformes chantier", montant: 210000, montantPaye: 100000, couts: [] },
+      { id: 1, date: "2026-06-15", description: "Uniformes chantier", montant: 210000, montantPaye: 100000, statut: "En production", couts: [] },
     ],
   },
   {
@@ -289,8 +295,8 @@ const CLIENTS_INIT = [
     dateEntree: "2026-04-02",
     statut: "Livré",
     commandes: [
-      { id: 1, date: "2026-04-18", description: "Sous-traitance broderie", montant: 45000, montantPaye: 45000, couts: [] },
-      { id: 2, date: "2026-06-02", description: "Sous-traitance DTF", montant: 38000, montantPaye: 38000, couts: [] },
+      { id: 1, date: "2026-04-18", description: "Sous-traitance broderie", montant: 45000, montantPaye: 45000, statut: "Livré", couts: [] },
+      { id: 2, date: "2026-06-02", description: "Sous-traitance DTF", montant: 38000, montantPaye: 38000, statut: "Livré", couts: [] },
     ],
   },
   {
@@ -312,10 +318,10 @@ const CLIENTS_INIT = [
     dateEntree: "2026-03-14",
     statut: "Livré",
     commandes: [
-      { id: 1, date: "2026-03-20", description: "Cartes de visite transparentes", montant: 35000, montantPaye: 35000, couts: [] },
-      { id: 2, date: "2026-04-25", description: "Flyers + kakémono", montant: 60000, montantPaye: 60000, couts: [] },
-      { id: 3, date: "2026-05-30", description: "T-shirts personnalisés", montant: 150000, montantPaye: 150000, couts: [] },
-      { id: 4, date: "2026-06-28", description: "Packaging boutique", montant: 95000, montantPaye: 95000, couts: [] },
+      { id: 1, date: "2026-03-20", description: "Cartes de visite transparentes", montant: 35000, montantPaye: 35000, statut: "Livré", couts: [] },
+      { id: 2, date: "2026-04-25", description: "Flyers + kakémono", montant: 60000, montantPaye: 60000, statut: "Livré", couts: [] },
+      { id: 3, date: "2026-05-30", description: "T-shirts personnalisés", montant: 150000, montantPaye: 150000, statut: "Livré", couts: [] },
+      { id: 4, date: "2026-06-28", description: "Packaging boutique", montant: 95000, montantPaye: 95000, statut: "Livré", couts: [] },
     ],
   },
   {
@@ -346,7 +352,7 @@ const CLIENTS_INIT = [
     source: "Facebook",
     dateEntree: "2026-06-25",
     statut: "Commande confirmée",
-    commandes: [{ id: 1, date: "2026-07-01", description: "Sacs personnalisés", montant: 70000, montantPaye: 0, couts: [
+    commandes: [{ id: 1, date: "2026-07-01", description: "Sacs personnalisés", montant: 70000, montantPaye: 0, statut: "Commande confirmée", couts: [
       { id: 1, description: "Achat sacs vierges", montant: 30000 },
     ] }],
   },
@@ -517,9 +523,17 @@ function clientsARelancer(clients, seuil) {
 function commandesARelancer(clients, seuil) {
   const clientsOnly = clients.filter((c) => c.type === "client");
   const statutsConcernes = ["Dossier à suivre", "En attente de validation"];
-  return clientsOnly.filter(
-    (c) => statutsConcernes.includes(c.statut) && joursDepuis(derniereActivite(c)) > seuil
-  );
+  return clientsOnly.filter((c) => {
+    if (c.commandes && c.commandes.length > 0) {
+      return c.commandes.some((cmd) => statutsConcernes.includes(cmd.statut) && joursDepuis(cmd.date) > seuil);
+    }
+    return statutsConcernes.includes(c.statut) && joursDepuis(derniereActivite(c)) > seuil;
+  });
+}
+
+// Utilitaire : liste des commandes (avec leur client) ayant l'un des statuts donnés
+function commandesParStatut(clients, statuts) {
+  return clients.flatMap((c) => (c.commandes || []).filter((cmd) => statuts.includes(cmd.statut)).map((cmd) => ({ client: c, cmd })));
 }
 
 function ARelancerListe({ clients, reglages, onSelect }) {
@@ -527,6 +541,7 @@ function ARelancerListe({ clients, reglages, onSelect }) {
   const seuilCommande = reglages.seuilCommandeInactiveJours;
   const listeClients = clientsARelancer(clients, seuil);
   const listeCommandes = commandesARelancer(clients, seuilCommande);
+  const idsCommandeInactive = new Set(listeCommandes.map((c) => c.id));
   const map = new Map();
   listeClients.forEach((c) => map.set(c.id, c));
   listeCommandes.forEach((c) => map.set(c.id, c));
@@ -538,7 +553,7 @@ function ARelancerListe({ clients, reglages, onSelect }) {
         <p className="text-xs p-4" style={{ color: ink.ink600 }}>Rien à relancer pour le moment.</p>
       ) : (
         liste.map((c, i) => {
-          const commandeInactive = ["Dossier à suivre", "En attente de validation"].includes(c.statut);
+          const commandeInactive = idsCommandeInactive.has(c.id);
           const joursInactif = joursDepuis(derniereActivite(c));
           return (
             <div
@@ -587,10 +602,8 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
   const maxSource = Math.max(...parSource.map((s) => s.n), 1);
   const topClient = [...clientsOnly].sort((a, b) => totalClient(b) - totalClient(a))[0];
 
-  const commandesEnAttente = clients.filter((c) =>
-    ["Conception", "En production"].includes(c.statut)
-  );
-  const livraisonEnAttente = clients.filter((c) => c.statut === "Prêt / à livrer");
+  const commandesEnAttente = commandesParStatut(clients, ["Conception", "En production"]);
+  const livraisonEnAttente = commandesParStatut(clients, ["Prêt / à livrer"]);
   const missionsAFaire = missions.filter((m) => m.statut === "a_faire" && (isAdminDash || m.assigneA === currentUser.nom));
   const missionsUrgentes = missionsAFaire.filter((m) => m.urgence === "urgent").length;
   const missionsTresUrgentes = missionsAFaire.filter((m) => m.urgence === "tres_urgent").length;
@@ -802,7 +815,7 @@ function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, st
   const lignes = clients.flatMap((c) => (c.commandes || []).map((cmd) => ({ client: c, cmd })));
 
   const filtered = lignes.filter(({ client: c, cmd }) => {
-    if (statutForce && !statutForce.includes(c.statut)) return false;
+    if (statutForce && !statutForce.includes(cmd.statut || c.statut)) return false;
     if (filter !== "tous" && c.type !== filter) return false;
     if (query && !c.nom.toLowerCase().includes(query.toLowerCase()) && !c.id.toLowerCase().includes(query.toLowerCase()))
       return false;
@@ -866,7 +879,7 @@ function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, st
             key={cmd.id}
             className="p-4 cursor-pointer"
             onClick={() => onSelect(c)}
-            style={{ borderLeft: `3px solid ${STATUT_COLOR[c.statut] || ink.ink300}` }}
+            style={{ borderLeft: `3px solid ${STATUT_COLOR[cmd.statut || c.statut] || ink.ink300}` }}
           >
             <div className="flex items-start justify-between gap-2 mb-1.5">
               <div className="min-w-0">
@@ -878,7 +891,7 @@ function ClientsList({ clients, onSelect, filter, setFilter, query, setQuery, st
               <ChevronRight size={16} className="shrink-0" style={{ color: ink.ink300 }} />
             </div>
             <div className="flex flex-wrap gap-1.5 mb-2">
-              <StatutBadge statut={c.statut} />
+              <StatutBadge statut={cmd.statut || c.statut} />
               {cmd.categorie && (
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: `${ink.bleu}1A`, color: ink.bleu }}>
                   {cmd.categorie}
@@ -945,10 +958,20 @@ function Parcours({ clients, onSelect }) {
 // ---------------------------------------------------------------------------
 // Vue : Fidélité
 // ---------------------------------------------------------------------------
-function Fidelite({ clients }) {
+function Fidelite({ clients, reglages }) {
   const classement = [...clients.filter((c) => c.type === "client")]
     .sort((a, b) => totalClient(b) - totalClient(a))
     .slice(0, 8);
+
+  const nombreRequis = reglages.fideliteNombreCommandes || 3;
+  const moisRequis = reglages.fidelitePeriodeMois || 6;
+  const debutPeriode = new Date(AUJOURD_HUI);
+  debutPeriode.setMonth(debutPeriode.getMonth() - moisRequis);
+
+  function estFidele(c) {
+    const commandesRecentes = (c.commandes || []).filter((cmd) => new Date(cmd.date) >= debutPeriode);
+    return commandesRecentes.length >= nombreRequis;
+  }
 
   return (
     <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
@@ -956,7 +979,8 @@ function Fidelite({ clients }) {
         Classement de fidélité
       </h3>
       <p className="text-xs mb-4" style={{ color: ink.ink600 }}>
-        Basé sur le montant total dépensé. Les prestataires ne sont pas comptés.
+        Basé sur le montant total dépensé. Badge "Fidèle" à partir de {nombreRequis} commandes en {moisRequis} mois. Les
+        prestataires ne sont pas comptés.
       </p>
       <div className="space-y-2">
         {classement.map((c, i) => (
@@ -972,8 +996,13 @@ function Fidelite({ clients }) {
               {i + 1}
             </span>
             <Tampon id={c.id} small color={i === 0 ? ink.ochreDeep : ink.petrol} />
-            <span className="text-sm font-medium flex-1" style={{ color: ink.ink900 }}>
+            <span className="text-sm font-medium flex-1 flex items-center gap-1.5" style={{ color: ink.ink900 }}>
               {c.nom}
+              {estFidele(c) && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: `${ink.ochreDeep}22`, color: ink.ochreDeep }}>
+                  FIDÈLE
+                </span>
+              )}
             </span>
             <span className="text-xs" style={{ color: ink.ink600 }}>
               {c.commandes.length} commande{c.commandes.length > 1 ? "s" : ""}
@@ -998,6 +1027,8 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
   const [seuil, setSeuil] = useState(reglages.seuilInactiviteJours);
   const [seuilCommande, setSeuilCommande] = useState(reglages.seuilCommandeInactiveJours);
   const [frequence, setFrequence] = useState(reglages.frequenceRelance);
+  const [fideliteNombreCommandes, setFideliteNombreCommandes] = useState(reglages.fideliteNombreCommandes);
+  const [fidelitePeriodeMois, setFidelitePeriodeMois] = useState(reglages.fidelitePeriodeMois);
   const [saved, setSaved] = useState(false);
   const [nouveauMdp, setNouveauMdp] = useState("");
   const [mdpSaved, setMdpSaved] = useState(false);
@@ -1008,6 +1039,8 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
       seuilInactiviteJours: Number(seuil) || 14,
       seuilCommandeInactiveJours: Number(seuilCommande) || 3,
       frequenceRelance: frequence,
+      fideliteNombreCommandes: Number(fideliteNombreCommandes) || 3,
+      fidelitePeriodeMois: Number(fidelitePeriodeMois) || 6,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
@@ -1070,6 +1103,42 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
           />
           <span className="text-sm" style={{ color: ink.ink600 }}>jours (ex. 3 = trois jours)</span>
         </div>
+      </div>
+
+      <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+        <h3 className="text-sm font-semibold mb-1 flex items-center gap-1.5" style={{ color: ink.ink900 }}>
+          <Trophy size={14} /> Client fidèle
+        </h3>
+        <p className="text-xs mb-3" style={{ color: ink.ink600 }}>
+          À partir de combien de commandes, sur quelle période, un client est considéré comme fidèle.
+        </p>
+        <div className="grid grid-cols-2 gap-2 items-end">
+          <div>
+            <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Nombre de commandes</label>
+            <input
+              type="number"
+              min="1"
+              value={fideliteNombreCommandes}
+              onChange={(e) => setFideliteNombreCommandes(e.target.value)}
+              className="w-full rounded-2xl px-3 py-2 text-sm"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Période (mois)</label>
+            <input
+              type="number"
+              min="1"
+              value={fidelitePeriodeMois}
+              onChange={(e) => setFidelitePeriodeMois(e.target.value)}
+              className="w-full rounded-2xl px-3 py-2 text-sm"
+              style={inputStyle}
+            />
+          </div>
+        </div>
+        <p className="text-xs mt-2" style={{ color: ink.ink600 }}>
+          Ex. {fideliteNombreCommandes || 3} commandes en {fidelitePeriodeMois || 6} mois → client fidèle.
+        </p>
       </div>
 
       <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
@@ -1937,12 +2006,12 @@ function BilanGraphiste({ clients, journal, currentUser }) {
   const mesActions = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui);
   const missionsTraitees = mesActions.filter((a) => a.action.includes("comme faite"));
   const commandesTraitees = mesActions.filter((a) => a.action.startsWith('A terminé "Conception"'));
-  const clientsRestants = clients.filter((c) => c.statut === "Conception");
+  const commandesRestantes = commandesParStatut(clients, ["Conception"]);
   const [observation, setObservation] = useState("");
   const [copie, setCopie] = useState(false);
 
-  const detailRestantes = clientsRestants
-    .map((c) => `- ${c.nom} : ${(c.commandes.map((cmd) => cmd.description).join(", ") || "besoin exprimé — " + (c.besoin || "non précisé"))}`)
+  const detailRestantes = commandesRestantes
+    .map(({ client: c, cmd }) => `- ${c.nom} : ${cmd.description}`)
     .join("\n");
 
   const rapport =
@@ -1951,8 +2020,8 @@ function BilanGraphiste({ clients, journal, currentUser }) {
     (missionsTraitees.length ? missionsTraitees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
     `\n\nCommandes terminées aujourd'hui (${commandesTraitees.length}) :\n` +
     (commandesTraitees.length ? commandesTraitees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
-    `\n\nCommandes restant à traiter (${clientsRestants.length}) :\n` +
-    (clientsRestants.length ? detailRestantes : "- Aucune") +
+    `\n\nCommandes restant à traiter (${commandesRestantes.length}) :\n` +
+    (commandesRestantes.length ? detailRestantes : "- Aucune") +
     `\n\nObservation / demande particulière :\n${observation.trim() || "(aucune)"}`;
 
   function copier() {
@@ -2107,13 +2176,17 @@ function MonBilan({ journal, currentUser }) {
 // ---------------------------------------------------------------------------
 function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) {
   const statutCible = POLE_STATUT[pole];
-  const items = clients.filter((c) => c.statut === statutCible);
+  const items = clients.flatMap((c) =>
+    (c.commandes || [])
+      .filter((cmd) => cmd.statut === statutCible)
+      .map((cmd) => ({ client: c, cmd }))
+  );
 
-  function handleFichier(clientId, e) {
+  function handleFichier(clientId, commandeId, e) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => onImportVisuel(clientId, reader.result);
+    reader.onload = () => onImportVisuel(clientId, commandeId, reader.result);
     reader.readAsDataURL(file);
   }
 
@@ -2128,45 +2201,41 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) 
           <p className="text-sm" style={{ color: ink.ink600 }}>Rien en attente pour le moment.</p>
         </div>
       ) : (
-        items.map((c) => {
-          const deadlinePassee = c.deadlineEtape && new Date(c.deadlineEtape) < new Date();
+        items.map(({ client: c, cmd }) => {
+          const deadlinePassee = cmd.deadline && new Date(cmd.deadline) < new Date();
           return (
-            <div key={c.id} className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}`, borderLeft: `3px solid ${STATUT_COLOR[statutCible]}` }}>
+            <div key={cmd.id} className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}`, borderLeft: `3px solid ${STATUT_COLOR[statutCible]}` }}>
               <div className="flex items-start justify-between mb-2">
                 <div>
                   <div className="text-sm font-semibold mb-1" style={{ color: ink.ink900 }}>{c.nom}</div>
                   <Tampon id={c.id} small color={STATUT_COLOR[statutCible]} />
                 </div>
               </div>
-              {c.commandes.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {c.commandes.map((cmd) => (
-                    <div key={cmd.id} className="text-xs flex items-center justify-between" style={{ color: ink.ink600 }}>
-                      <span>{cmd.description}</span>
-                      {pole === "livraison" && (
-                        <span style={{ fontFamily: "'Inter', monospace" }}>{fmt(cmd.montant)}</span>
-                      )}
-                    </div>
-                  ))}
+              <div className="text-xs mt-2" style={{ color: ink.ink600 }}>
+                <div className="flex items-center justify-between">
+                  <span>{cmd.description}</span>
+                  {pole === "livraison" && (
+                    <span style={{ fontFamily: "'Inter', monospace" }}>{fmt(cmd.montant)}</span>
+                  )}
                 </div>
-              )}
-              {c.deadlineEtape && (
+              </div>
+              {cmd.deadline && (
                 <div className="text-xs mt-2 font-medium" style={{ color: deadlinePassee ? ink.rouge : ink.ink600 }}>
-                  Deadline : {new Date(c.deadlineEtape).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  Deadline : {new Date(cmd.deadline).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                   {deadlinePassee ? " — dépassée" : ""}
                 </div>
               )}
 
               {pole === "graphiste" && (
                 <div className="mt-3 rounded-2xl p-3" style={{ background: ink.panelSoft, border: `1px dashed ${ink.line}` }}>
-                  {c.visuelConception ? (
+                  {cmd.visuelConception ? (
                     <div className="flex items-center gap-3">
-                      <img src={c.visuelConception} alt="Visuel importé" className="h-14 w-14 rounded-xl object-cover shrink-0" />
+                      <img src={cmd.visuelConception} alt="Visuel importé" className="h-14 w-14 rounded-xl object-cover shrink-0" />
                       <div className="min-w-0">
                         <div className="text-xs font-semibold" style={{ color: ink.ink900 }}>Visuel importé</div>
                         <label className="text-[11px] underline cursor-pointer" style={{ color: ink.bleu }}>
                           Remplacer
-                          <input type="file" accept="image/jpeg,image/jpg" className="hidden" onChange={(e) => handleFichier(c.id, e)} />
+                          <input type="file" accept="image/jpeg,image/jpg" className="hidden" onChange={(e) => handleFichier(c.id, cmd.id, e)} />
                         </label>
                       </div>
                     </div>
@@ -2174,23 +2243,23 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) 
                     <label className="flex items-center gap-2 text-xs font-medium cursor-pointer" style={{ color: ink.bleu }}>
                       <Plus size={14} />
                       Importer le visuel final (JPEG)
-                      <input type="file" accept="image/jpeg,image/jpg" className="hidden" onChange={(e) => handleFichier(c.id, e)} />
+                      <input type="file" accept="image/jpeg,image/jpg" className="hidden" onChange={(e) => handleFichier(c.id, cmd.id, e)} />
                     </label>
                   )}
                 </div>
               )}
 
-              {pole === "production" && c.visuelConception && (
+              {pole === "production" && cmd.visuelConception && (
                 <div className="mt-3 rounded-2xl overflow-hidden" style={{ border: `1px solid ${ink.line}` }}>
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ background: ink.panelSoft, color: ink.bleu }}>
                     Maquette du graphiste
                   </div>
-                  <img src={c.visuelConception} alt="Maquette finale" className="w-full max-h-64 object-contain" style={{ background: "#0B0B0B" }} />
+                  <img src={cmd.visuelConception} alt="Maquette finale" className="w-full max-h-64 object-contain" style={{ background: "#0B0B0B" }} />
                 </div>
               )}
 
               <button
-                onClick={() => onValider(c)}
+                onClick={() => onValider(c, cmd)}
                 className="w-full mt-3 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
                 style={{ background: ink.petrol, color: "#fff" }}
               >
@@ -2315,7 +2384,7 @@ function GlobalStyle() {
 // Vue : Tableau de bord du pôle graphique
 // ---------------------------------------------------------------------------
 function GraphisteDashboard({ clients, journal, currentUser, setView }) {
-  const enAttente = clients.filter((c) => c.statut === "Conception");
+  const enAttente = commandesParStatut(clients, ["Conception"]);
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const traiteesAujourdhui = journal.filter(
     (j) => j.auteur === currentUser.nom && j.date === aujourdhui && j.action.startsWith('A terminé "Conception"')
@@ -2422,7 +2491,7 @@ function BesoinsParticuliers({ journal, currentUser, onAjouter }) {
 // Vue : Tableau de bord de la production
 // ---------------------------------------------------------------------------
 function ProductionDashboard({ clients, journal, currentUser, setView, onAjouterObservation }) {
-  const enAttente = clients.filter((c) => c.statut === "En production");
+  const enAttente = commandesParStatut(clients, ["En production"]);
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const traiteesAujourdhui = journal.filter(
     (j) => j.auteur === currentUser.nom && j.date === aujourdhui && j.action.startsWith('A terminé "En production"')
@@ -2490,19 +2559,19 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation }
   const mesActions = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui);
   const commandesTraitees = mesActions.filter((a) => a.action.startsWith('A terminé "En production"'));
   const besoins = mesActions.filter((a) => a.action.startsWith("A signalé un besoin particulier"));
-  const clientsRestants = clients.filter((c) => c.statut === "En production");
+  const commandesRestantes = commandesParStatut(clients, ["En production"]);
   const [copie, setCopie] = useState(false);
 
-  const detailRestantes = clientsRestants
-    .map((c) => `- ${c.nom} : ${c.commandes.map((cmd) => cmd.description).join(", ") || "non précisé"}`)
+  const detailRestantes = commandesRestantes
+    .map(({ client: c, cmd }) => `- ${c.nom} : ${cmd.description}`)
     .join("\n");
 
   const rapport =
     `Rapport d'activité — Production — ${currentUser.nom} — ${aujourdhui}\n\n` +
     `Commandes traitées aujourd'hui (${commandesTraitees.length}) :\n` +
     (commandesTraitees.length ? commandesTraitees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
-    `\n\nCommandes restant à traiter (${clientsRestants.length}) :\n` +
-    (clientsRestants.length ? detailRestantes : "- Aucune") +
+    `\n\nCommandes restant à traiter (${commandesRestantes.length}) :\n` +
+    (commandesRestantes.length ? detailRestantes : "- Aucune") +
     `\n\nBesoins particuliers signalés (${besoins.length}) :\n` +
     (besoins.length ? besoins.map((a) => `- ${a.heure} : ${a.action.replace('A signalé un besoin particulier : ', '')}`).join("\n") : "- Aucun");
 
@@ -2521,7 +2590,7 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation }
         </div>
         <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
           <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>Commandes restantes</div>
-          <div className="text-2xl font-extrabold" style={{ color: ink.rouge }}>{clientsRestants.length}</div>
+          <div className="text-2xl font-extrabold" style={{ color: ink.rouge }}>{commandesRestantes.length}</div>
         </div>
       </div>
 
@@ -2540,15 +2609,15 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation }
 
       <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
         <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>
-          Commandes restant à traiter ({clientsRestants.length})
+          Commandes restant à traiter ({commandesRestantes.length})
         </h3>
-        {clientsRestants.length === 0 ? (
+        {commandesRestantes.length === 0 ? (
           <p className="text-xs" style={{ color: ink.ink600 }}>Aucune.</p>
         ) : (
           <div className="space-y-1.5">
-            {clientsRestants.map((c) => (
-              <div key={c.id} className="text-xs" style={{ color: ink.ink600 }}>
-                <span className="font-semibold" style={{ color: ink.ink900 }}>{c.nom}</span> — {c.commandes.map((cmd) => cmd.description).join(", ") || "non précisé"}
+            {commandesRestantes.map(({ client: c, cmd }) => (
+              <div key={cmd.id} className="text-xs" style={{ color: ink.ink600 }}>
+                <span className="font-semibold" style={{ color: ink.ink900 }}>{c.nom}</span> — {cmd.description}
               </div>
             ))}
           </div>
@@ -2746,6 +2815,8 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   const [editMontantPaye, setEditMontantPaye] = useState(String(cmd.montantPaye || ""));
   const [editCategorie, setEditCategorie] = useState(cmd.categorie || "");
   const [editNonConfirmee, setEditNonConfirmee] = useState(!!cmd.nonConfirmee);
+  const [editDeadline, setEditDeadline] = useState(cmd.deadline ? cmd.deadline.slice(0, 16) : "");
+  const [editStatut, setEditStatut] = useState(cmd.statut || "Dossier à suivre");
   const [confirmSupp, setConfirmSupp] = useState(false);
   const statutP = statutPaiement(cmd);
   const reste = cmd.montant - cmd.montantPaye;
@@ -2769,6 +2840,8 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
       montantPaye: Number(editMontantPaye || 0),
       categorie: editCategorie || null,
       nonConfirmee: editNonConfirmee,
+      deadline: editDeadline || null,
+      statut: editStatut,
     });
     setEditOuvert(false);
   }
@@ -2783,6 +2856,29 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
       <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.bleu}` }}>
         <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Description" className="w-full rounded-2xl px-3 py-2 text-sm mb-2" style={inputStyle} />
         <SelecteurCategorie value={editCategorie} onChange={setEditCategorie} categories={categories} onAddCategorie={onAddCategorie} />
+        <div>
+          <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Statut de cette commande</label>
+          <select
+            value={editStatut}
+            onChange={(e) => setEditStatut(e.target.value)}
+            className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+            style={{ ...inputStyle, color: STATUT_COLOR[editStatut], borderColor: STATUT_COLOR[editStatut] }}
+          >
+            {STATUTS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Deadline (facultatif)</label>
+          <input
+            type="datetime-local"
+            value={editDeadline}
+            onChange={(e) => setEditDeadline(e.target.value)}
+            className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+            style={inputStyle}
+          />
+        </div>
         <div className="grid grid-cols-2 gap-2 mb-2">
           <input value={editMontant} onChange={(e) => setEditMontant(e.target.value)} type="number" placeholder="Montant (F)" disabled={editNonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: editNonConfirmee ? 0.5 : 1 }} />
           <input value={editMontantPaye} onChange={(e) => setEditMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" disabled={editNonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: editNonConfirmee ? 0.5 : 1 }} />
@@ -2804,8 +2900,8 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
   }
 
   return (
-    <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-      <div className="flex items-start justify-between mb-1.5">
+    <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${STATUT_COLOR[cmd.statut] || ink.line}` }}>
+      <div className="flex items-start justify-between gap-2 mb-1.5">
         <span className="text-sm font-medium" style={{ color: ink.ink900 }}>{cmd.description}</span>
         <span
           className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ml-2"
@@ -2814,6 +2910,17 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
           {cmd.nonConfirmee ? "Non confirmée" : statutP}
         </span>
       </div>
+      {cmd.statut && (
+        <div className="mb-1.5">
+          <span
+            className="text-[10px] font-semibold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+            style={{ background: `${STATUT_COLOR[cmd.statut]}1A`, color: STATUT_COLOR[cmd.statut] }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUT_COLOR[cmd.statut] }} />
+            {cmd.statut}
+          </span>
+        </div>
+      )}
       <div className="text-[11px] mb-2 flex items-center gap-1.5" style={{ color: ink.ink600 }}>
         {cmd.date}
         {cmd.categorie && (
@@ -2822,6 +2929,15 @@ function CommandeCard({ cmd, clientId, onAddCout, onSolder, onEdit, onDelete, ca
           </span>
         )}
       </div>
+      {cmd.deadline && (
+        <div
+          className="text-[11px] mb-2 font-medium"
+          style={{ color: new Date(cmd.deadline) < new Date() ? ink.rouge : ink.ink600 }}
+        >
+          Deadline : {new Date(cmd.deadline).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+          {new Date(cmd.deadline) < new Date() ? " — dépassée" : ""}
+        </div>
+      )}
       {!cmd.nonConfirmee && (
         <div className="flex items-center justify-between text-xs mb-2" style={{ fontFamily: "'Inter', monospace" }}>
           <span style={{ color: ink.ink900 }}>{fmt(cmd.montant)}</span>
@@ -2933,6 +3049,8 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
   const [montantPaye, setMontantPaye] = useState("");
   const [categorieChoisie, setCategorieChoisie] = useState("");
   const [nonConfirmee, setNonConfirmee] = useState(false);
+  const [deadlineCmd, setDeadlineCmd] = useState("");
+  const [statutCmd, setStatutCmd] = useState("Dossier à suivre");
   const [relanceOuverte, setRelanceOuverte] = useState(false);
   const [copieId, setCopieId] = useState(null);
   const [editClientOuvert, setEditClientOuvert] = useState(false);
@@ -2971,6 +3089,8 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
       montantPaye: Number(montantPaye || 0),
       categorie: categorieChoisie || null,
       nonConfirmee,
+      deadline: deadlineCmd || null,
+      statut: statutCmd,
       couts: [],
     });
     setDesc("");
@@ -2978,6 +3098,8 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
     setMontantPaye("");
     setCategorieChoisie("");
     setNonConfirmee(false);
+    setDeadlineCmd("");
+    setStatutCmd("Dossier à suivre");
     setAjoutOuvert(false);
   }
 
@@ -3008,45 +3130,17 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
           <TypeBadge type={client.type} />
         </div>
 
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <div>
-            <label className="text-[10px] font-medium uppercase tracking-wide block mb-1" style={{ color: ink.ink600 }}>
-              Statut
-            </label>
-            <div className="relative">
-              <select
-                value={client.statut}
-                onChange={(e) => onChangeStatut(client.id, e.target.value)}
-                className="w-full text-xs font-semibold rounded-2xl pl-2.5 pr-6 py-2 outline-none appearance-none"
-                style={{
-                  background: ink.panel,
-                  border: `2px solid ${STATUT_COLOR[client.statut]}`,
-                  color: STATUT_COLOR[client.statut],
-                }}
-              >
-                {STATUTS.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-              <ChevronRight
-                size={12}
-                className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none rotate-90"
-                style={{ color: STATUT_COLOR[client.statut] }}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="text-[10px] font-medium uppercase tracking-wide block mb-1" style={{ color: ink.ink600 }}>
-              Deadline étape
-            </label>
-            <input
-              type="datetime-local"
-              value={client.deadlineEtape ? client.deadlineEtape.slice(0, 16) : ""}
-              onChange={(e) => onSetDeadlineEtape(client.id, e.target.value || null)}
-              className="w-full text-xs rounded-2xl px-2.5 py-2"
-              style={inputStyle}
-            />
-          </div>
+        <div className="mb-4">
+          <label className="text-[10px] font-medium uppercase tracking-wide block mb-1" style={{ color: ink.ink600 }}>
+            Deadline étape (globale au dossier)
+          </label>
+          <input
+            type="datetime-local"
+            value={client.deadlineEtape ? client.deadlineEtape.slice(0, 16) : ""}
+            onChange={(e) => onSetDeadlineEtape(client.id, e.target.value || null)}
+            className="w-full text-xs rounded-2xl px-2.5 py-2"
+            style={inputStyle}
+          />
         </div>
 
         {modeGestion && (
@@ -3137,6 +3231,29 @@ function FicheClient({ client, onClose, onChangeStatut, onAddCommande, onAddCout
           <div className="rounded-2xl p-3 mb-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
             <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (ex. T-shirts x50)" className="w-full rounded-2xl px-3 py-2 text-sm mb-2" style={inputStyle} />
             <SelecteurCategorie value={categorieChoisie} onChange={setCategorieChoisie} categories={categories} onAddCategorie={onAddCategorie} />
+            <div>
+              <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Statut de cette commande</label>
+              <select
+                value={statutCmd}
+                onChange={(e) => setStatutCmd(e.target.value)}
+                className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+                style={{ ...inputStyle, color: STATUT_COLOR[statutCmd], borderColor: STATUT_COLOR[statutCmd] }}
+              >
+                {STATUTS.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Deadline (facultatif)</label>
+              <input
+                type="datetime-local"
+                value={deadlineCmd}
+                onChange={(e) => setDeadlineCmd(e.target.value)}
+                className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+                style={inputStyle}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <input value={montant} onChange={(e) => setMontant(e.target.value)} type="number" placeholder="Montant (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
               <input value={montantPaye} onChange={(e) => setMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
@@ -3259,7 +3376,7 @@ const inputStyle = {
 // ---------------------------------------------------------------------------
 // Modale : Enregistrer une commande (recherche client → ajoute une commande)
 // ---------------------------------------------------------------------------
-function AjouterCommandeModal({ clients, categories, onAddCommande, onAddCategorie, onClose }) {
+function AjouterCommandeModal({ clients, categories, onAddCommande, onAddClient, onAddCategorie, onClose }) {
   const [recherche, setRecherche] = useState("");
   const [clientChoisi, setClientChoisi] = useState(null);
   const [desc, setDesc] = useState("");
@@ -3267,12 +3384,37 @@ function AjouterCommandeModal({ clients, categories, onAddCommande, onAddCategor
   const [montantPaye, setMontantPaye] = useState("");
   const [categorieChoisie, setCategorieChoisie] = useState("");
   const [nonConfirmee, setNonConfirmee] = useState(false);
+  const [deadline, setDeadline] = useState("");
+  const [statutCmd, setStatutCmd] = useState("Dossier à suivre");
+  const [modeNouveau, setModeNouveau] = useState(false);
+  const [nouveauNom, setNouveauNom] = useState("");
+  const [nouveauTelephone, setNouveauTelephone] = useState("");
+  const [nouveauSource, setNouveauSource] = useState("Facebook");
+  const [nouveauType, setNouveauType] = useState("client");
 
   const resultats = recherche.trim()
     ? clients.filter(
         (c) => c.nom.toLowerCase().includes(recherche.toLowerCase()) || c.id.toLowerCase().includes(recherche.toLowerCase())
       ).slice(0, 20)
     : clients.slice(0, 20);
+
+  function creerEtContinuer() {
+    if (!nouveauNom.trim()) return;
+    const nouveauClient = {
+      id: prochainNumero(clients),
+      nom: nouveauNom.trim(),
+      type: nouveauType,
+      telephone: nouveauTelephone.trim(),
+      source: nouveauSource,
+      besoin: "",
+      dateEntree: AUJOURD_HUI.toISOString().slice(0, 10),
+      statut: "Dossier à suivre",
+      commandes: [],
+    };
+    onAddClient(nouveauClient);
+    setClientChoisi(nouveauClient);
+    setModeNouveau(false);
+  }
 
   function enregistrer() {
     if (!clientChoisi || !desc.trim()) return;
@@ -3285,6 +3427,8 @@ function AjouterCommandeModal({ clients, categories, onAddCommande, onAddCategor
       montantPaye: Number(montantPaye || 0),
       categorie: categorieChoisie || null,
       nonConfirmee,
+      deadline: deadline || null,
+      statut: statutCmd,
       couts: [],
     });
     onClose();
@@ -3302,36 +3446,91 @@ function AjouterCommandeModal({ clients, categories, onAddCommande, onAddCategor
 
         {!clientChoisi ? (
           <>
-            <div className="flex items-center gap-2 rounded-2xl px-3 py-2 mb-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-              <Search size={14} style={{ color: ink.ink600 }} />
-              <input
-                value={recherche}
-                onChange={(e) => setRecherche(e.target.value)}
-                placeholder="Chercher un client par nom ou numéro..."
-                className="bg-transparent outline-none text-sm flex-1"
-                style={{ color: ink.ink900 }}
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2 max-h-72 overflow-y-auto">
-              {resultats.map((c) => (
+            {!modeNouveau ? (
+              <>
+                <div className="flex items-center gap-2 rounded-2xl px-3 py-2 mb-2" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+                  <Search size={14} style={{ color: ink.ink600 }} />
+                  <input
+                    value={recherche}
+                    onChange={(e) => setRecherche(e.target.value)}
+                    placeholder="Chercher un client par nom ou numéro..."
+                    className="bg-transparent outline-none text-sm flex-1"
+                    style={{ color: ink.ink900 }}
+                    autoFocus
+                  />
+                </div>
                 <button
-                  key={c.id}
-                  onClick={() => setClientChoisi(c)}
-                  className="w-full flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left"
-                  style={{ background: ink.panelSoft, border: `1px solid ${ink.line}` }}
+                  onClick={() => setModeNouveau(true)}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold mb-3"
+                  style={{ background: ink.rouge, color: "#fff" }}
                 >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate" style={{ color: ink.ink900 }}>{c.nom}</div>
-                    <div className="text-[11px]" style={{ color: ink.ink600 }}>{c.telephone || "—"}</div>
-                  </div>
-                  <Tampon id={c.id} small />
+                  <Plus size={15} /> Nouveau contact
                 </button>
-              ))}
-              {resultats.length === 0 && (
-                <p className="text-xs text-center py-4" style={{ color: ink.ink600 }}>Aucun client trouvé.</p>
-              )}
-            </div>
+                <div className="space-y-2 max-h-72 overflow-y-auto">
+                  {resultats.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setClientChoisi(c)}
+                      className="w-full flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left"
+                      style={{ background: ink.panelSoft, border: `1px solid ${ink.line}` }}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate" style={{ color: ink.ink900 }}>{c.nom}</div>
+                        <div className="text-[11px]" style={{ color: ink.ink600 }}>{c.telephone || "—"}</div>
+                      </div>
+                      <Tampon id={c.id} small />
+                    </button>
+                  ))}
+                  {resultats.length === 0 && (
+                    <p className="text-xs text-center py-4" style={{ color: ink.ink600 }}>Aucun client trouvé.</p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold" style={{ color: ink.ink900 }}>Nouveau contact</h3>
+                  <button onClick={() => setModeNouveau(false)} className="text-[11px] underline" style={{ color: ink.bleu }}>
+                    Chercher plutôt
+                  </button>
+                </div>
+                <input
+                  value={nouveauNom}
+                  onChange={(e) => setNouveauNom(e.target.value)}
+                  placeholder="Nom *"
+                  className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+                  style={inputStyle}
+                  autoFocus
+                />
+                <input
+                  value={nouveauTelephone}
+                  onChange={(e) => setNouveauTelephone(e.target.value)}
+                  placeholder="Téléphone / WhatsApp"
+                  className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+                  style={inputStyle}
+                />
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <select value={nouveauSource} onChange={(e) => setNouveauSource(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle}>
+                    <option>Facebook</option>
+                    <option>WhatsApp</option>
+                    <option>TikTok</option>
+                    <option>Autre</option>
+                  </select>
+                  <select value={nouveauType} onChange={(e) => setNouveauType(e.target.value)} className="w-full rounded-2xl px-3 py-2 text-sm" style={inputStyle}>
+                    <option value="client">Client</option>
+                    <option value="prestataire">Prestataire</option>
+                  </select>
+                </div>
+                <button
+                  onClick={creerEtContinuer}
+                  disabled={!nouveauNom.trim()}
+                  className="w-full rounded-2xl py-3 text-sm font-bold"
+                  style={{ background: nouveauNom.trim() ? ink.petrol : ink.ink300, color: "#fff" }}
+                >
+                  Créer et continuer
+                </button>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -3344,6 +3543,29 @@ function AjouterCommandeModal({ clients, categories, onAddCommande, onAddCategor
             </div>
             <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (ex. T-shirts x50)" className="w-full rounded-2xl px-3 py-2 text-sm mb-2" style={inputStyle} />
             <SelecteurCategorie value={categorieChoisie} onChange={setCategorieChoisie} categories={categories} onAddCategorie={onAddCategorie} />
+            <div>
+              <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Statut de cette commande</label>
+              <select
+                value={statutCmd}
+                onChange={(e) => setStatutCmd(e.target.value)}
+                className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+                style={{ ...inputStyle, color: STATUT_COLOR[statutCmd], borderColor: STATUT_COLOR[statutCmd] }}
+              >
+                {STATUTS.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Deadline (facultatif)</label>
+              <input
+                type="datetime-local"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+                className="w-full rounded-2xl px-3 py-2 text-sm mb-2"
+                style={inputStyle}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2 mb-2">
               <input value={montant} onChange={(e) => setMontant(e.target.value)} type="number" placeholder="Montant (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
               <input value={montantPaye} onChange={(e) => setMontantPaye(e.target.value)} type="number" placeholder="Déjà payé (F)" disabled={nonConfirmee} className="w-full rounded-2xl px-3 py-2 text-sm" style={{ ...inputStyle, opacity: nonConfirmee ? 0.5 : 1 }} />
@@ -3776,14 +3998,17 @@ export default function CRMPrototype() {
     logAction(`A supprimé le client ${client?.nom} (${clientId})`);
   }
 
-  function handleValiderEtape(pole, client) {
+  function handleValiderEtape(pole, client, commande) {
     const statutActuel = POLE_STATUT[pole];
     const suivant = STATUT_SUIVANT[statutActuel];
-    const next = clients.map((c) => (c.id === client.id ? { ...c, statut: suivant } : c));
+    const next = clients.map((c) =>
+      c.id === client.id
+        ? { ...c, commandes: c.commandes.map((cmd) => (cmd.id === commande.id ? { ...cmd, statut: suivant } : cmd)) }
+        : c
+    );
     persist(next);
-    const details = client.commandes.map((cmd) => cmd.description).join(", ") || "aucune commande enregistrée";
     const verbe = pole === "livraison" ? "A livré la commande de" : `A terminé "${statutActuel}" pour`;
-    logAction(`${verbe} ${client.nom} (${details}) → ${suivant}`);
+    logAction(`${verbe} ${client.nom} (${commande.description}) → ${suivant}`);
   }
 
   function handleSetDeadlineEtape(clientId, valeur) {
@@ -3794,9 +4019,13 @@ export default function CRMPrototype() {
     logAction(`A défini la deadline d'étape pour ${client?.nom}${valeur ? " : " + new Date(valeur).toLocaleString("fr-FR") : " (retirée)"}`);
   }
 
-  function handleImportVisuel(clientId, dataUrl) {
+  function handleImportVisuel(clientId, commandeId, dataUrl) {
     const client = clients.find((c) => c.id === clientId);
-    const next = clients.map((c) => (c.id === clientId ? { ...c, visuelConception: dataUrl } : c));
+    const next = clients.map((c) =>
+      c.id === clientId
+        ? { ...c, commandes: c.commandes.map((cmd) => (cmd.id === commandeId ? { ...cmd, visuelConception: dataUrl } : cmd)) }
+        : c
+    );
     persist(next);
     logAction(`A importé le visuel final pour ${client?.nom}`);
   }
@@ -4093,7 +4322,7 @@ export default function CRMPrototype() {
               />
             )}
             {view === "parcours" && (isAdmin || hasRole("commercial")) && <Parcours clients={clients} onSelect={selectClient} />}
-            {view === "fidelite" && (isAdmin || hasRole("commercial")) && <Fidelite clients={clients} />}
+            {view === "fidelite" && (isAdmin || hasRole("commercial")) && <Fidelite clients={clients} reglages={reglages} />}
             {view === "base_clients" && (isAdmin || hasRole("commercial")) && (
               <BaseClients
                 clients={clients}
@@ -4158,7 +4387,7 @@ export default function CRMPrototype() {
               <FileAttente
                 clients={clients}
                 pole="graphiste"
-                onValider={(c) => handleValiderEtape("graphiste", c)}
+                onValider={(c, cmd) => handleValiderEtape("graphiste", c, cmd)}
                 onImportVisuel={handleImportVisuel}
               />
             )}
@@ -4166,13 +4395,13 @@ export default function CRMPrototype() {
               <ProductionDashboard clients={clients} journal={journal} currentUser={currentUser} setView={setView} onAjouterObservation={handleAjouterObservation} />
             )}
             {view === "file_production" && hasRole("production") && (
-              <FileAttente clients={clients} pole="production" onValider={(c) => handleValiderEtape("production", c)} currentUser={currentUser} />
+              <FileAttente clients={clients} pole="production" onValider={(c, cmd) => handleValiderEtape("production", c, cmd)} currentUser={currentUser} />
             )}
             {view === "bilan_production" && hasRole("production") && (
               <BilanProduction clients={clients} journal={journal} currentUser={currentUser} onAjouterObservation={handleAjouterObservation} />
             )}
             {view === "file_livraison" && hasRole("livraison") && (
-              <FileAttente clients={clients} pole="livraison" onValider={(c) => handleValiderEtape("livraison", c)} currentUser={currentUser} />
+              <FileAttente clients={clients} pole="livraison" onValider={(c, cmd) => handleValiderEtape("livraison", c, cmd)} currentUser={currentUser} />
             )}
             {view === "missions" && (
               <Missions
@@ -4197,6 +4426,7 @@ export default function CRMPrototype() {
           clients={clients}
           categories={categories}
           onAddCommande={handleAddCommande}
+          onAddClient={handleAdd}
           onAddCategorie={handleAddCategorie}
           onClose={() => setAjouterCommandeOuvert(false)}
         />
