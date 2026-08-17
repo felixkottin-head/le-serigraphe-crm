@@ -2387,13 +2387,32 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) 
                 </div>
               )}
 
-              <button
-                onClick={() => onValider(c, cmd)}
-                className="w-full mt-3 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
-                style={{ background: ink.petrol, color: "#fff" }}
-              >
-                <CheckCircle2 size={15} /> FAIT — passer à l'étape suivante
-              </button>
+              {pole === "graphiste" ? (
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => onValider(c, cmd, "En attente de validation")}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold text-center"
+                    style={{ background: ink.ochre, color: "#fff" }}
+                  >
+                    <ListChecks size={14} /> Envoyer en validation
+                  </button>
+                  <button
+                    onClick={() => onValider(c, cmd, "En production")}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-xs font-semibold text-center"
+                    style={{ background: ink.petrol, color: "#fff" }}
+                  >
+                    <CheckCircle2 size={14} /> Envoyer en production
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => onValider(c, cmd)}
+                  className="w-full mt-3 flex items-center justify-center gap-1.5 rounded-2xl py-2.5 text-sm font-semibold"
+                  style={{ background: ink.petrol, color: "#fff" }}
+                >
+                  <CheckCircle2 size={15} /> FAIT — passer à l'étape suivante
+                </button>
+              )}
             </div>
           );
         })
@@ -4197,9 +4216,9 @@ export default function CRMPrototype() {
     logAction(`A supprimé le client ${client?.nom} (${clientId})`);
   }
 
-  function handleValiderEtape(pole, client, commande) {
+  function handleValiderEtape(pole, client, commande, statutChoisi) {
     const statutActuel = POLE_STATUT[pole];
-    const suivant = STATUT_SUIVANT[statutActuel];
+    const suivant = statutChoisi || STATUT_SUIVANT[statutActuel];
     const next = clients.map((c) =>
       c.id === client.id
         ? { ...c, commandes: c.commandes.map((cmd) => (cmd.id === commande.id ? { ...cmd, statut: suivant } : cmd)) }
@@ -4596,7 +4615,7 @@ export default function CRMPrototype() {
               <FileAttente
                 clients={clients}
                 pole="graphiste"
-                onValider={(c, cmd) => handleValiderEtape("graphiste", c, cmd)}
+                onValider={(c, cmd, statutChoisi) => handleValiderEtape("graphiste", c, cmd, statutChoisi)}
                 onImportVisuel={handleImportVisuel}
               />
             )}
