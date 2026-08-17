@@ -195,6 +195,7 @@ const REGLAGES_DEFAUT = {
   frequenceRelance: "hebdomadaire",
   fideliteNombreCommandes: 3,
   fidelitePeriodeMois: 6,
+  dureeSessionMinutes: 60,
 };
 
 const ADMIN_AUTH_DEFAUT = { nom: "Félix", motDePasse: "serigraphe2026" };
@@ -1045,6 +1046,7 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
   const [frequence, setFrequence] = useState(reglages.frequenceRelance);
   const [fideliteNombreCommandes, setFideliteNombreCommandes] = useState(reglages.fideliteNombreCommandes);
   const [fidelitePeriodeMois, setFidelitePeriodeMois] = useState(reglages.fidelitePeriodeMois);
+  const [dureeSessionMinutes, setDureeSessionMinutes] = useState(reglages.dureeSessionMinutes);
   const [saved, setSaved] = useState(false);
   const [nouveauMdp, setNouveauMdp] = useState("");
   const [mdpSaved, setMdpSaved] = useState(false);
@@ -1057,6 +1059,7 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
       frequenceRelance: frequence,
       fideliteNombreCommandes: Number(fideliteNombreCommandes) || 3,
       fidelitePeriodeMois: Number(fidelitePeriodeMois) || 6,
+      dureeSessionMinutes: Number(dureeSessionMinutes) || 60,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
@@ -1155,6 +1158,27 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
         <p className="text-xs mt-2" style={{ color: ink.ink600 }}>
           Ex. {fideliteNombreCommandes || 3} commandes en {fidelitePeriodeMois || 6} mois → client fidèle.
         </p>
+      </div>
+
+      <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+        <h3 className="text-sm font-semibold mb-1 flex items-center gap-1.5" style={{ color: ink.ink900 }}>
+          <KeyRound size={14} /> Session — redemande du mot de passe
+        </h3>
+        <p className="text-xs mb-3" style={{ color: ink.ink600 }}>
+          Après combien de minutes d'inactivité l'app redemande le mot de passe à tout le monde. Plus la valeur est haute,
+          moins les utilisateurs ont à le retaper souvent.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min="5"
+            value={dureeSessionMinutes}
+            onChange={(e) => setDureeSessionMinutes(e.target.value)}
+            className="w-24 rounded-2xl px-3 py-2 text-sm"
+            style={inputStyle}
+          />
+          <span className="text-sm" style={{ color: ink.ink600 }}>minutes (ex. 60 = une heure)</span>
+        </div>
       </div>
 
       <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
@@ -2130,28 +2154,37 @@ function Messages({ templates, onSave }) {
 // ---------------------------------------------------------------------------
 // Vue : Bilan d'activité du pôle graphique
 // ---------------------------------------------------------------------------
-function BilanGraphiste({ clients, journal, currentUser }) {
+function BilanGraphiste({ clients, journal, missions, currentUser, onAjouterBesoin, onAjouterDifficulte }) {
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const mesActions = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui);
-  const missionsTraitees = mesActions.filter((a) => a.action.includes("comme faite"));
+  const missionsTraiteesAujourdhui = mesActions.filter((a) => a.action.includes("comme faite"));
   const commandesTraitees = mesActions.filter((a) => a.action.startsWith('A terminé "Conception"'));
   const commandesRestantes = commandesParStatut(clients, ["Conception"]);
-  const [observation, setObservation] = useState("");
   const [copie, setCopie] = useState(false);
 
-  const detailRestantes = commandesRestantes
-    .map(({ client: c, cmd }) => `- ${c.nom} : ${cmd.description}`)
-    .join("\n");
+  const mesMissions = missions.filter((m) => m.assigneA === currentUser.nom);
+  const missionsFaitesTotal = mesMissions.filter((m) => m.statut === "faite");
+  const missionsEnAttenteTotal = mesMissions.filter((m) => m.statut === "a_faire");
+
+  const besoins = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui && j.action.startsWith("A signalé un besoin particulier"));
+  const difficultes = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui && j.action.startsWith("A signalé une observation/difficulté"));
+
+  const detailRestantes = commandesRestantes.map(({ client: c, cmd }) => `- ${c.nom} : ${cmd.description}`).join("\n");
 
   const rapport =
     `Bilan d'activité — ${currentUser.nom} — ${aujourdhui}\n\n` +
-    `Missions spécifiques traitées (${missionsTraitees.length}) :\n` +
-    (missionsTraitees.length ? missionsTraitees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
-    `\n\nCommandes terminées aujourd'hui (${commandesTraitees.length}) :\n` +
+    `COMMANDES\n` +
+    `Terminées aujourd'hui (${commandesTraitees.length}) :\n` +
     (commandesTraitees.length ? commandesTraitees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
-    `\n\nCommandes restant à traiter (${commandesRestantes.length}) :\n` +
+    `\nRestant à traiter (${commandesRestantes.length}) :\n` +
     (commandesRestantes.length ? detailRestantes : "- Aucune") +
-    `\n\nObservation / demande particulière :\n${observation.trim() || "(aucune)"}`;
+    `\n\nMISSIONS SPÉCIFIQUES\n` +
+    `Faites au total : ${missionsFaitesTotal.length} — En attente : ${missionsEnAttenteTotal.length}\n` +
+    (missionsEnAttenteTotal.length ? missionsEnAttenteTotal.map((m) => `- À faire : ${m.texte}`).join("\n") : "") +
+    `\n\nBESOINS PARTICULIERS / MATÉRIEL (${besoins.length}) :\n` +
+    (besoins.length ? besoins.map((a) => `- ${a.heure} : ${a.action.replace('A signalé un besoin particulier : ', '')}`).join("\n") : "- Aucun") +
+    `\n\nOBSERVATION / DIFFICULTÉ (${difficultes.length}) :\n` +
+    (difficultes.length ? difficultes.map((a) => `- ${a.heure} : ${a.action.replace('A signalé une observation/difficulté : ', '')}`).join("\n") : "- Aucune");
 
   function copier() {
     navigator.clipboard?.writeText(rapport);
@@ -2163,12 +2196,12 @@ function BilanGraphiste({ clients, journal, currentUser }) {
     <div className="space-y-4 pb-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-          <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>Missions traitées</div>
-          <div className="text-2xl font-extrabold" style={{ color: "#5FA85B" }}>{missionsTraitees.length}</div>
-        </div>
-        <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
           <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>Commandes traitées</div>
           <div className="text-2xl font-extrabold" style={{ color: "#5FA85B" }}>{commandesTraitees.length}</div>
+        </div>
+        <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+          <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>Commandes restantes</div>
+          <div className="text-2xl font-extrabold" style={{ color: ink.rouge }}>{commandesRestantes.length}</div>
         </div>
       </div>
 
@@ -2187,32 +2220,24 @@ function BilanGraphiste({ clients, journal, currentUser }) {
 
       <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
         <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>
-          Commandes restant à traiter ({clientsRestants.length})
+          Commandes restant à traiter ({commandesRestantes.length})
         </h3>
-        {clientsRestants.length === 0 ? (
+        {commandesRestantes.length === 0 ? (
           <p className="text-xs" style={{ color: ink.ink600 }}>Aucune.</p>
         ) : (
           <div className="space-y-1.5">
-            {clientsRestants.map((c) => (
-              <div key={c.id} className="text-xs" style={{ color: ink.ink600 }}>
-                <span className="font-semibold" style={{ color: ink.ink900 }}>{c.nom}</span> — {c.commandes.map((cmd) => cmd.description).join(", ") || "besoin : " + (c.besoin || "non précisé")}
+            {commandesRestantes.map(({ client: c, cmd }) => (
+              <div key={cmd.id} className="text-xs" style={{ color: ink.ink600 }}>
+                <span className="font-semibold" style={{ color: ink.ink900 }}>{c.nom}</span> — {cmd.description}
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-        <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>Observation / demande particulière</h3>
-        <textarea
-          value={observation}
-          onChange={(e) => setObservation(e.target.value)}
-          rows={3}
-          placeholder="Ex. besoin de plus de temps sur telle commande, matériel manquant..."
-          className="w-full rounded-2xl px-3 py-2 text-sm"
-          style={inputStyle}
-        />
-      </div>
+      <MissionsRapport missions={missions} currentUser={currentUser} />
+      <BesoinsParticuliers journal={journal} currentUser={currentUser} onAjouter={onAjouterBesoin} />
+      <Difficultes journal={journal} currentUser={currentUser} onAjouter={onAjouterDifficulte} />
 
       <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
         <h3 className="text-sm font-semibold mb-3" style={{ color: ink.ink900 }}>Rapport à envoyer</h3>
@@ -2229,26 +2254,57 @@ function BilanGraphiste({ clients, journal, currentUser }) {
   );
 }
 
-function MonBilan({ journal, currentUser }) {
+function MonBilan({ journal, currentUser, clients, reglages, missions, onAjouterBesoin, onAjouterDifficulte }) {
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const mesActions = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui);
   const [copie, setCopie] = useState(false);
-  const [observation, setObservation] = useState("");
 
   const compte = {
     contacts: mesActions.filter((a) => a.action.startsWith("A ajouté le contact")).length,
-    statuts: mesActions.filter((a) => a.action.startsWith("A changé le statut")).length,
     commandes: mesActions.filter((a) => a.action.startsWith("A ajouté une commande")).length,
     relances: mesActions.filter((a) => a.action.startsWith("A envoyé une relance")).length,
   };
 
-  const rapport = `Rapport journalier — ${currentUser.nom} — ${aujourdhui}\n\n` +
-    `• Nouveaux contacts ajoutés : ${compte.contacts}\n` +
-    `• Statuts mis à jour : ${compte.statuts}\n` +
-    `• Commandes enregistrées : ${compte.commandes}\n` +
-    `• Relances envoyées : ${compte.relances}\n\n` +
-    `Détail :\n` + mesActions.map((a) => `- ${a.heure} : ${a.action}`).join("\n") +
-    `\n\nObservation / demande particulière :\n${observation.trim() || "(aucune)"}`;
+  // Commandes passées en production aujourd'hui (validées par le pôle graphique)
+  const commandesValidees = journal.filter((j) => j.date === aujourdhui && j.action.includes('→ En production'));
+
+  // Chiffre d'affaires du jour (toutes commandes enregistrées aujourd'hui)
+  const clientsOnly = (clients || []).filter((c) => c.type === "client");
+  const caJour = clientsOnly.reduce(
+    (s, c) => s + (c.commandes || []).filter((cmd) => cmd.date === aujourdhui).reduce((s2, cmd) => s2 + Number(cmd.montant || 0), 0),
+    0
+  );
+  const enAttenteLivraison = commandesParStatut(clients || [], ["Prêt / à livrer"]).length;
+  const aRelancer = reglages
+    ? clientsARelancer(clients || [], reglages.seuilInactiviteJours).length + commandesARelancer(clients || [], reglages.seuilCommandeInactiveJours).length
+    : 0;
+
+  const mesMissions = (missions || []).filter((m) => m.assigneA === currentUser.nom);
+  const missionsFaitesTotal = mesMissions.filter((m) => m.statut === "faite");
+  const missionsEnAttenteTotal = mesMissions.filter((m) => m.statut === "a_faire");
+
+  const besoins = mesActions.filter((a) => a.action.startsWith("A signalé un besoin particulier"));
+  const difficultes = mesActions.filter((a) => a.action.startsWith("A signalé une observation/difficulté"));
+
+  const rapport =
+    `Rapport journalier — ${currentUser.nom} — ${aujourdhui}\n\n` +
+    `ACTIVITÉ\n` +
+    `• Nouveaux contacts : ${compte.contacts}\n` +
+    `• Nouvelles commandes enregistrées : ${compte.commandes}\n` +
+    `• Relances envoyées : ${compte.relances}\n` +
+    `• Chiffre d'affaires du jour : ${fmt(caJour)}\n\n` +
+    `COMMANDES VALIDÉES (passées en production) (${commandesValidees.length}) :\n` +
+    (commandesValidees.length ? commandesValidees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
+    `\n\nSUIVI\n` +
+    `• Clients en attente de livraison : ${enAttenteLivraison}\n` +
+    `• Clients à relancer : ${aRelancer}\n\n` +
+    `MISSIONS SPÉCIFIQUES\n` +
+    `Faites au total : ${missionsFaitesTotal.length} — En attente : ${missionsEnAttenteTotal.length}\n` +
+    (missionsEnAttenteTotal.length ? missionsEnAttenteTotal.map((m) => `- À faire : ${m.texte}`).join("\n") : "") +
+    `\n\nBESOINS PARTICULIERS / MATÉRIEL (${besoins.length}) :\n` +
+    (besoins.length ? besoins.map((a) => `- ${a.heure} : ${a.action.replace('A signalé un besoin particulier : ', '')}`).join("\n") : "- Aucun") +
+    `\n\nOBSERVATION / DIFFICULTÉ (${difficultes.length}) :\n` +
+    (difficultes.length ? difficultes.map((a) => `- ${a.heure} : ${a.action.replace('A signalé une observation/difficulté : ', '')}`).join("\n") : "- Aucune");
 
   function copier() {
     navigator.clipboard?.writeText(rapport);
@@ -2257,32 +2313,54 @@ function MonBilan({ journal, currentUser }) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          ["Contacts ajoutés", compte.contacts],
-          ["Statuts changés", compte.statuts],
-          ["Commandes", compte.commandes],
-          ["Relances", compte.relances],
-        ].map(([label, v]) => (
-          <div key={label} className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-            <div className="text-[11px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>{label}</div>
-            <div className="text-xl font-bold" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800, color: ink.ink900 }}>{v}</div>
-          </div>
-        ))}
+    <div className="space-y-4 pb-4">
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: ink.ink600 }}>Activité du jour</h3>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            ["Nouveaux contacts", compte.contacts],
+            ["Nouvelles commandes", compte.commandes],
+            ["Chiffre d'affaires", fmt(caJour)],
+            ["Relances envoyées", compte.relances],
+          ].map(([label, v]) => (
+            <div key={label} className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+              <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>{label}</div>
+              <div className="text-lg font-extrabold" style={{ color: ink.ink900 }}>{v}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
-        <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>Observation / demande particulière</h3>
-        <textarea
-          value={observation}
-          onChange={(e) => setObservation(e.target.value)}
-          rows={3}
-          placeholder="Ex. client difficile à convaincre, besoin de visuels supplémentaires pour argumenter..."
-          className="w-full rounded-2xl px-3 py-2 text-sm"
-          style={inputStyle}
-        />
+      <div>
+        <h3 className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: ink.ink600 }}>Suivi</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+            <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>En attente de livraison</div>
+            <div className="text-lg font-extrabold" style={{ color: "#5FA85B" }}>{enAttenteLivraison}</div>
+          </div>
+          <div className="rounded-2xl p-3" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+            <div className="text-[10px] uppercase tracking-wide mb-1" style={{ color: ink.ink600 }}>Clients à relancer</div>
+            <div className="text-lg font-extrabold" style={{ color: ink.rouge }}>{aRelancer}</div>
+          </div>
+        </div>
       </div>
+
+      {commandesValidees.length > 0 && (
+        <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+          <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>Commandes validées aujourd'hui ({commandesValidees.length})</h3>
+          <div className="space-y-1.5">
+            {commandesValidees.map((a) => (
+              <div key={a.id} className="text-xs" style={{ color: ink.ink600 }}>
+                <span style={{ color: ink.ink300 }}>{a.heure}</span> — {a.action}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <MissionsRapport missions={missions || []} currentUser={currentUser} />
+      <BesoinsParticuliers journal={journal} currentUser={currentUser} onAjouter={onAjouterBesoin} />
+      <Difficultes journal={journal} currentUser={currentUser} onAjouter={onAjouterDifficulte} />
 
       <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
         <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>Rapport à envoyer</h3>
@@ -2303,7 +2381,7 @@ function MonBilan({ journal, currentUser }) {
 // ---------------------------------------------------------------------------
 // Vue : File d'attente d'un pôle (graphiste / production / livraison)
 // ---------------------------------------------------------------------------
-function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) {
+function FileAttente({ clients, pole, onValider, onImportVisuel, onSupprimerVisuel, currentUser }) {
   const statutCible = POLE_STATUT[pole];
   const items = clients.flatMap((c) =>
     (c.commandes || [])
@@ -2357,33 +2435,63 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, currentUser }) 
 
               {pole === "graphiste" && (
                 <div className="mt-3 rounded-2xl p-3" style={{ background: ink.panelSoft, border: `1px dashed ${ink.line}` }}>
-                  {cmd.visuelConception ? (
-                    <div className="flex items-center gap-3">
-                      <img src={cmd.visuelConception} alt="Visuel importé" className="h-14 w-14 rounded-xl object-cover shrink-0" />
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold" style={{ color: ink.ink900 }}>Visuel importé</div>
-                        <label className="text-[11px] underline cursor-pointer" style={{ color: ink.bleu }}>
-                          Remplacer
-                          <input type="file" accept="image/jpeg,image/jpg" className="hidden" onChange={(e) => handleFichier(c.id, cmd.id, e)} />
-                        </label>
-                      </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-semibold" style={{ color: ink.ink900 }}>
+                      Visuels importés ({(cmd.visuels || []).length}/10)
                     </div>
-                  ) : (
+                    {(cmd.visuels || []).length < 10 && (
+                      <label className="flex items-center gap-1 text-[11px] font-medium cursor-pointer" style={{ color: ink.bleu }}>
+                        <Plus size={12} /> Ajouter
+                        <input type="file" accept="image/jpeg,image/jpg" className="hidden" onChange={(e) => handleFichier(c.id, cmd.id, e)} />
+                      </label>
+                    )}
+                  </div>
+                  {(cmd.visuels || []).length === 0 ? (
                     <label className="flex items-center gap-2 text-xs font-medium cursor-pointer" style={{ color: ink.bleu }}>
                       <Plus size={14} />
-                      Importer le visuel final (JPEG)
+                      Importer le premier visuel (JPEG)
                       <input type="file" accept="image/jpeg,image/jpg" className="hidden" onChange={(e) => handleFichier(c.id, cmd.id, e)} />
                     </label>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-2">
+                      {cmd.visuels.map((url, idx) => (
+                        <div key={idx} className="relative">
+                          <img src={url} alt={`Visuel ${idx + 1}`} className="h-16 w-full rounded-xl object-cover" />
+                          <button
+                            onClick={() => onSupprimerVisuel(c.id, cmd.id, idx)}
+                            className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full flex items-center justify-center"
+                            style={{ background: ink.rouge }}
+                          >
+                            <X size={11} color="#fff" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
 
-              {pole === "production" && cmd.visuelConception && (
+              {(pole === "production" || pole === "livraison") && (cmd.visuels || []).length > 0 && (
                 <div className="mt-3 rounded-2xl overflow-hidden" style={{ border: `1px solid ${ink.line}` }}>
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ background: ink.panelSoft, color: ink.bleu }}>
-                    Maquette du graphiste
+                    Maquette{cmd.visuels.length > 1 ? "s" : ""} du graphiste ({cmd.visuels.length})
                   </div>
-                  <img src={cmd.visuelConception} alt="Maquette finale" className="w-full max-h-64 object-contain" style={{ background: "#0B0B0B" }} />
+                  <div className="grid grid-cols-3 gap-1.5 p-2">
+                    {cmd.visuels.map((url, idx) => (
+                      <a
+                        key={idx}
+                        href={url}
+                        download={`${c.id}-${cmd.description.replace(/\s+/g, "_")}-${idx + 1}.jpg`}
+                        className="relative block rounded-xl overflow-hidden"
+                      >
+                        <img src={url} alt={`Maquette ${idx + 1}`} className="h-20 w-full object-cover" style={{ background: "#0B0B0B" }} />
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition" style={{ background: "rgba(0,0,0,0.55)" }}>
+                          <ArrowUpFromLine size={16} color="#fff" style={{ transform: "rotate(180deg)" }} />
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                  <p className="text-[10px] px-3 pb-2" style={{ color: ink.ink600 }}>Touche une image pour la télécharger en JPEG.</p>
                 </div>
               )}
 
@@ -2628,6 +2736,80 @@ function BesoinsParticuliers({ journal, currentUser, onAjouter }) {
   );
 }
 
+// Deuxième case, dédiée aux difficultés/observations (distincte des besoins matériels)
+function Difficultes({ journal, currentUser, onAjouter }) {
+  const [texte, setTexte] = useState("");
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const mesDifficultes = journal.filter(
+    (j) => j.auteur === currentUser.nom && j.date === aujourdhui && j.action.startsWith("A signalé une observation/difficulté")
+  );
+
+  function envoyer() {
+    if (!texte.trim()) return;
+    onAjouter(texte);
+    setTexte("");
+  }
+
+  return (
+    <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+      <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>Observation / difficulté</h3>
+      <div className="flex gap-2 mb-2">
+        <input
+          value={texte}
+          onChange={(e) => setTexte(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && envoyer()}
+          placeholder="Ex. client difficile, retard indépendant de ma volonté..."
+          className="flex-1 rounded-2xl px-3 py-2 text-sm"
+          style={inputStyle}
+        />
+        <button onClick={envoyer} className="shrink-0 rounded-2xl px-3 py-2 text-xs font-semibold" style={{ background: ink.ochre, color: "#fff" }}>
+          Signaler
+        </button>
+      </div>
+      {mesDifficultes.length > 0 && (
+        <div className="space-y-1.5 mt-2">
+          {mesDifficultes.map((b) => (
+            <div key={b.id} className="text-xs" style={{ color: ink.ink600 }}>
+              <span style={{ color: ink.ink300 }}>{b.heure}</span> — {b.action.replace('A signalé une observation/difficulté : ', '')}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Résumé missions spécifiques (fait / pas fait), utilisé dans tous les bilans
+function MissionsRapport({ missions, currentUser }) {
+  const mesMissions = missions.filter((m) => m.assigneA === currentUser.nom);
+  const faites = mesMissions.filter((m) => m.statut === "faite");
+  const enAttente = mesMissions.filter((m) => m.statut === "a_faire");
+
+  return (
+    <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+      <h3 className="text-sm font-semibold mb-2" style={{ color: ink.ink900 }}>Missions spécifiques</h3>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="rounded-2xl p-2.5" style={{ background: ink.canvasDeep }}>
+          <div className="text-[10px] uppercase tracking-wide" style={{ color: ink.ink600 }}>Faites</div>
+          <div className="text-lg font-extrabold" style={{ color: "#5FA85B" }}>{faites.length}</div>
+        </div>
+        <div className="rounded-2xl p-2.5" style={{ background: ink.canvasDeep }}>
+          <div className="text-[10px] uppercase tracking-wide" style={{ color: ink.ink600 }}>En attente</div>
+          <div className="text-lg font-extrabold" style={{ color: ink.rouge }}>{enAttente.length}</div>
+        </div>
+      </div>
+      {enAttente.length > 0 && (
+        <div className="space-y-1">
+          {enAttente.map((m) => (
+            <div key={m.id} className="text-xs" style={{ color: ink.ink600 }}>• {m.texte}</div>
+          ))}
+        </div>
+      )}
+      {mesMissions.length === 0 && <p className="text-xs" style={{ color: ink.ink600 }}>Aucune mission assignée.</p>}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Vue : Tableau de bord de la production
 // ---------------------------------------------------------------------------
@@ -2695,7 +2877,7 @@ function ProductionDashboard({ clients, journal, currentUser, setView, onAjouter
 // ---------------------------------------------------------------------------
 // Vue : Rapport d'activité de la production
 // ---------------------------------------------------------------------------
-function BilanProduction({ clients, journal, currentUser, onAjouterObservation, pole = "production" }) {
+function BilanProduction({ clients, journal, missions, currentUser, onAjouterObservation, onAjouterDifficulte, pole = "production" }) {
   const statutCible = POLE_STATUT[pole];
   const titrePole = POLE_LABEL[pole] || pole;
   const aujourdhui = new Date().toISOString().slice(0, 10);
@@ -2705,8 +2887,13 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation, 
       ? mesActions.filter((a) => a.action.startsWith("A livré la commande de"))
       : mesActions.filter((a) => a.action.startsWith(`A terminé "${statutCible}"`));
   const besoins = mesActions.filter((a) => a.action.startsWith("A signalé un besoin particulier"));
+  const difficultes = mesActions.filter((a) => a.action.startsWith("A signalé une observation/difficulté"));
   const commandesRestantes = commandesParStatut(clients, [statutCible]);
   const [copie, setCopie] = useState(false);
+
+  const mesMissions = missions.filter((m) => m.assigneA === currentUser.nom);
+  const missionsFaitesTotal = mesMissions.filter((m) => m.statut === "faite");
+  const missionsEnAttenteTotal = mesMissions.filter((m) => m.statut === "a_faire");
 
   const detailRestantes = commandesRestantes
     .map(({ client: c, cmd }) => `- ${c.nom} : ${cmd.description}`)
@@ -2714,12 +2901,18 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation, 
 
   const rapport =
     `Rapport d'activité — ${titrePole} — ${currentUser.nom} — ${aujourdhui}\n\n` +
-    `Commandes traitées aujourd'hui (${commandesTraitees.length}) :\n` +
+    `COMMANDES\n` +
+    `Traitées aujourd'hui (${commandesTraitees.length}) :\n` +
     (commandesTraitees.length ? commandesTraitees.map((a) => `- ${a.heure} : ${a.action}`).join("\n") : "- Aucune") +
-    `\n\nCommandes restant à traiter (${commandesRestantes.length}) :\n` +
+    `\nRestant à traiter (${commandesRestantes.length}) :\n` +
     (commandesRestantes.length ? detailRestantes : "- Aucune") +
-    `\n\nBesoins particuliers signalés (${besoins.length}) :\n` +
-    (besoins.length ? besoins.map((a) => `- ${a.heure} : ${a.action.replace('A signalé un besoin particulier : ', '')}`).join("\n") : "- Aucun");
+    `\n\nMISSIONS SPÉCIFIQUES\n` +
+    `Faites au total : ${missionsFaitesTotal.length} — En attente : ${missionsEnAttenteTotal.length}\n` +
+    (missionsEnAttenteTotal.length ? missionsEnAttenteTotal.map((m) => `- À faire : ${m.texte}`).join("\n") : "") +
+    `\n\nBESOINS PARTICULIERS / MATÉRIEL (${besoins.length}) :\n` +
+    (besoins.length ? besoins.map((a) => `- ${a.heure} : ${a.action.replace('A signalé un besoin particulier : ', '')}`).join("\n") : "- Aucun") +
+    `\n\nOBSERVATION / DIFFICULTÉ (${difficultes.length}) :\n` +
+    (difficultes.length ? difficultes.map((a) => `- ${a.heure} : ${a.action.replace('A signalé une observation/difficulté : ', '')}`).join("\n") : "- Aucune");
 
   function copier() {
     navigator.clipboard?.writeText(rapport);
@@ -2770,7 +2963,9 @@ function BilanProduction({ clients, journal, currentUser, onAjouterObservation, 
         )}
       </div>
 
+      <MissionsRapport missions={missions} currentUser={currentUser} />
       <BesoinsParticuliers journal={journal} currentUser={currentUser} onAjouter={onAjouterObservation} />
+      <Difficultes journal={journal} currentUser={currentUser} onAjouter={onAjouterDifficulte} />
 
       <div className="rounded-3xl p-4" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
         <h3 className="text-sm font-semibold mb-3" style={{ color: ink.ink900 }}>Rapport à envoyer</h3>
@@ -3918,6 +4113,35 @@ export default function CRMPrototype() {
   const [alerteAcquittee, setAlerteAcquittee] = useState(false);
   const [missionAlerteAcquittee, setMissionAlerteAcquittee] = useState(false);
   const audioCtxRef = useRef(null);
+  const derniereActiviteRef = useRef(Date.now());
+
+  useEffect(() => {
+    const marquerActivite = () => {
+      derniereActiviteRef.current = Date.now();
+    };
+    window.addEventListener("mousemove", marquerActivite);
+    window.addEventListener("keydown", marquerActivite);
+    window.addEventListener("touchstart", marquerActivite);
+    window.addEventListener("click", marquerActivite);
+    return () => {
+      window.removeEventListener("mousemove", marquerActivite);
+      window.removeEventListener("keydown", marquerActivite);
+      window.removeEventListener("touchstart", marquerActivite);
+      window.removeEventListener("click", marquerActivite);
+    };
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!currentUser) return;
+      const dureeMin = reglages.dureeSessionMinutes || 60;
+      const minutesEcoulees = (Date.now() - derniereActiviteRef.current) / 60000;
+      if (minutesEcoulees >= dureeMin) {
+        setCurrentUser(null);
+      }
+    }, 30000);
+    return () => clearInterval(id);
+  }, [currentUser, reglages.dureeSessionMinutes]);
 
   function initAudio() {
     try {
@@ -4013,6 +4237,32 @@ export default function CRMPrototype() {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // Actualisation automatique en arrière-plan : tout le monde voit les changements des autres
+  // sans avoir à recharger la page.
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const [rc, rm, rj, ru, rcu, rr, rcat] = await Promise.all([
+          storageGet("clients"),
+          storageGet("missions"),
+          storageGet("journal"),
+          storageGet("utilisateurs"),
+          storageGet("categoriesUtilisateur"),
+          storageGet("reglages"),
+          storageGet("categories"),
+        ]);
+        if (rc) setClients(rc);
+        if (rm) setMissions(rm);
+        if (rj) setJournal(rj);
+        if (ru) setUtilisateurs(ru);
+        if (rcu) setCategoriesUtilisateur(rcu);
+        if (rr) setReglages({ ...REGLAGES_DEFAUT, ...rr });
+        if (rcat) setCategories(rcat);
+      } catch (e) {}
+    }, 12000);
+    return () => clearInterval(id);
   }, []);
 
   async function persist(next) {
@@ -4241,16 +4491,40 @@ export default function CRMPrototype() {
     const client = clients.find((c) => c.id === clientId);
     const next = clients.map((c) =>
       c.id === clientId
-        ? { ...c, commandes: c.commandes.map((cmd) => (cmd.id === commandeId ? { ...cmd, visuelConception: dataUrl } : cmd)) }
+        ? {
+            ...c,
+            commandes: c.commandes.map((cmd) =>
+              cmd.id === commandeId ? { ...cmd, visuels: [...(cmd.visuels || []), dataUrl].slice(0, 10) } : cmd
+            ),
+          }
         : c
     );
     persist(next);
-    logAction(`A importé le visuel final pour ${client?.nom}`);
+    logAction(`A importé un visuel pour ${client?.nom}`);
+  }
+
+  function handleSupprimerVisuel(clientId, commandeId, index) {
+    const next = clients.map((c) =>
+      c.id === clientId
+        ? {
+            ...c,
+            commandes: c.commandes.map((cmd) =>
+              cmd.id === commandeId ? { ...cmd, visuels: (cmd.visuels || []).filter((_, i) => i !== index) } : cmd
+            ),
+          }
+        : c
+    );
+    persist(next);
   }
 
   function handleAjouterObservation(texte) {
     if (!texte.trim()) return;
     logAction(`A signalé un besoin particulier : "${texte.trim()}"`);
+  }
+
+  function handleAjouterDifficulte(texte) {
+    if (!texte.trim()) return;
+    logAction(`A signalé une observation/difficulté : "${texte.trim()}"`);
   }
 
   function handleAddMission(mission) {
@@ -4600,16 +4874,47 @@ export default function CRMPrototype() {
             )}
             {view === "messages" && !isAdmin && onglets.includes("messages") && <Messages templates={templates} onSave={persistTemplates} />}
             {view === "bilan" && !isAdmin && onglets.includes("file_graphiste") && (
-              <BilanGraphiste clients={clients} journal={journal} currentUser={currentUser} />
+              <BilanGraphiste
+                clients={clients}
+                journal={journal}
+                missions={missions}
+                currentUser={currentUser}
+                onAjouterBesoin={handleAjouterObservation}
+                onAjouterDifficulte={handleAjouterDifficulte}
+              />
             )}
             {view === "bilan" && !isAdmin && !onglets.includes("file_graphiste") && onglets.includes("file_production") && (
-              <BilanProduction clients={clients} journal={journal} currentUser={currentUser} onAjouterObservation={handleAjouterObservation} pole="production" />
+              <BilanProduction
+                clients={clients}
+                journal={journal}
+                missions={missions}
+                currentUser={currentUser}
+                onAjouterObservation={handleAjouterObservation}
+                onAjouterDifficulte={handleAjouterDifficulte}
+                pole="production"
+              />
             )}
             {view === "bilan" && !isAdmin && !onglets.includes("file_graphiste") && !onglets.includes("file_production") && onglets.includes("file_livraison") && (
-              <BilanProduction clients={clients} journal={journal} currentUser={currentUser} onAjouterObservation={handleAjouterObservation} pole="livraison" />
+              <BilanProduction
+                clients={clients}
+                journal={journal}
+                missions={missions}
+                currentUser={currentUser}
+                onAjouterObservation={handleAjouterObservation}
+                onAjouterDifficulte={handleAjouterDifficulte}
+                pole="livraison"
+              />
             )}
             {view === "bilan" && !isAdmin && !onglets.includes("file_graphiste") && !onglets.includes("file_production") && !onglets.includes("file_livraison") && onglets.includes("bilan") && (
-              <MonBilan journal={journal} currentUser={currentUser} />
+              <MonBilan
+                journal={journal}
+                currentUser={currentUser}
+                clients={clients}
+                reglages={reglages}
+                missions={missions}
+                onAjouterBesoin={handleAjouterObservation}
+                onAjouterDifficulte={handleAjouterDifficulte}
+              />
             )}
             {view === "file_graphiste" && (isAdmin || onglets.includes("file_graphiste")) && (
               <FileAttente
@@ -4617,6 +4922,7 @@ export default function CRMPrototype() {
                 pole="graphiste"
                 onValider={(c, cmd, statutChoisi) => handleValiderEtape("graphiste", c, cmd, statutChoisi)}
                 onImportVisuel={handleImportVisuel}
+                onSupprimerVisuel={handleSupprimerVisuel}
               />
             )}
             {view === "file_production" && (isAdmin || onglets.includes("file_production")) && (
