@@ -218,6 +218,7 @@ const CATEGORIES_DEFAUT = ["T-shirt", "Sachet", "Sac", "Tableau", "Casquette", "
 const CATALOGUE_ONGLETS = [
   { id: "dashboard", label: "Tableau de bord", Icon: LayoutGrid },
   { id: "clients", label: "Commande", Icon: Users },
+  { id: "recherche_client", label: "Rechercher un client", Icon: Search },
   { id: "base_clients", label: "Client (base de données)", Icon: Database },
   { id: "parcours", label: "Parcours", Icon: Package },
   { id: "fidelite", label: "Fidélité", Icon: Trophy },
@@ -231,7 +232,7 @@ const CATALOGUE_ONGLETS = [
 
 // Catégories d'utilisateurs par défaut (rétro-compatibles avec les rôles historiques)
 const CATEGORIES_UTILISATEUR_DEFAUT = [
-  { id: "commercial", nom: "Commercial(e)", onglets: ["dashboard", "clients", "base_clients", "parcours", "fidelite", "messages", "bilan", "missions"] },
+  { id: "commercial", nom: "Commercial(e)", onglets: ["dashboard", "clients", "recherche_client", "base_clients", "parcours", "fidelite", "messages", "bilan", "missions"] },
   { id: "graphiste", nom: "Pôle graphique", onglets: ["dashboard", "file_graphiste", "bilan", "missions"] },
   { id: "production", nom: "Production", onglets: ["dashboard", "file_production", "bilan", "missions"] },
   { id: "livraison", nom: "Livraison", onglets: ["file_livraison", "missions"] },
@@ -595,11 +596,11 @@ function telechargerTexte(nomFichier, contenu) {
   URL.revokeObjectURL(url);
 }
 
-function ARelancerListe({ clients, reglages, onSelect }) {
+function ARelancerListe({ clients, reglages, onSelect, systeme = "les-deux" }) {
   const seuil = reglages.seuilInactiviteJours;
   const seuilCommande = reglages.seuilCommandeInactiveJours;
-  const listeClients = clientsARelancer(clients, seuil);
-  const listeCommandes = commandesARelancer(clients, seuilCommande);
+  const listeClients = systeme !== "2" ? clientsARelancer(clients, seuil) : [];
+  const listeCommandes = systeme !== "1" ? commandesARelancer(clients, seuilCommande) : [];
   const idsCommandeInactive = new Set(listeCommandes.map((c) => c.id));
   const map = new Map();
   listeClients.forEach((c) => map.set(c.id, c));
@@ -636,6 +637,60 @@ function ARelancerListe({ clients, reglages, onSelect }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Vue : Recherche d'un client (accès rapide, sans passer par la liste complète)
+// ---------------------------------------------------------------------------
+function RechercheClient({ clients, onSelect }) {
+  const [query, setQuery] = useState("");
+  const resultats = query.trim()
+    ? clients.filter(
+        (c) => c.nom.toLowerCase().includes(query.toLowerCase()) || c.id.toLowerCase().includes(query.toLowerCase())
+      )
+    : [];
+
+  return (
+    <div className="space-y-3">
+      <div
+        className="flex items-center gap-2 rounded-2xl px-3 py-2"
+        style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
+      >
+        <Search size={14} style={{ color: ink.ink600 }} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Chercher un client par nom ou numéro..."
+          className="bg-transparent outline-none text-sm flex-1"
+          style={{ color: ink.ink900 }}
+          autoFocus
+        />
+      </div>
+
+      {!query.trim() ? (
+        <p className="text-xs text-center py-6" style={{ color: ink.ink600 }}>Tape un nom ou un numéro pour chercher.</p>
+      ) : resultats.length === 0 ? (
+        <p className="text-xs text-center py-6" style={{ color: ink.ink600 }}>Aucun client trouvé.</p>
+      ) : (
+        <div className="space-y-2">
+          {resultats.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onSelect(c)}
+              className="w-full flex items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-left"
+              style={{ background: ink.panel, border: `1px solid ${ink.line}` }}
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate" style={{ color: ink.ink900 }}>{c.nom}</div>
+                <div className="text-[11px]" style={{ color: ink.ink600 }}>{c.telephone || "—"}</div>
+              </div>
+              <Tampon id={c.id} small />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ clients, reglages, currentUser, missions, setView }) {
   const clientsOnly = clients.filter((c) => c.type === "client");
   const isAdminDash = currentUser.roles.includes("admin");
@@ -649,7 +704,8 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
   );
   const nouveauxCeMois = clients.filter((c) => dansLeMois(c.dateEntree)).length;
   const seuil = reglages.seuilInactiviteJours;
-  const totalARelancer = clientsARelancer(clients, seuil).length + commandesARelancer(clients, reglages.seuilCommandeInactiveJours).length;
+  const clientsInactifsCount = clientsARelancer(clients, seuil).length;
+  const commandesInactivesCount = commandesARelancer(clients, reglages.seuilCommandeInactiveJours).length;
   const statutsExclusInactivite = ["Conception", "En production", "Prêt / à livrer", "Livré"];
   const inactifs = clientsOnly.filter(
     (c) => joursDepuis(derniereActivite(c)) > seuil && c.commandes.length > 0 && !statutsExclusInactivite.includes(c.statut)
@@ -761,18 +817,33 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
         </button>
 
         <button
-          onClick={() => setView("a_relancer")}
+          onClick={() => setView("commande_a_relancer")}
           className="rounded-2xl p-3 text-left"
           style={{ background: ink.rouge, color: "#fff" }}
         >
           <div className="flex items-center justify-between mb-1.5">
             <AlertTriangle size={17} />
             <span className="text-sm font-bold" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800 }}>
-              {totalARelancer}
+              {commandesInactivesCount}
             </span>
           </div>
-          <div className="text-xs font-semibold leading-tight">À relancer</div>
-          <div className="text-[10px] opacity-80">clients concernés</div>
+          <div className="text-xs font-semibold leading-tight">Commande à relancer</div>
+          <div className="text-[10px] opacity-80">dossiers en attente</div>
+        </button>
+
+        <button
+          onClick={() => setView("clients_inactifs")}
+          className="rounded-2xl p-3 text-left"
+          style={{ background: "#8A4F2E", color: "#fff" }}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <AlertTriangle size={17} />
+            <span className="text-sm font-bold" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800 }}>
+              {clientsInactifsCount}
+            </span>
+          </div>
+          <div className="text-xs font-semibold leading-tight">Clients inactifs</div>
+          <div className="text-[10px] opacity-80">à saluer</div>
         </button>
 
         {isAdminDash && (
@@ -1323,7 +1394,7 @@ function rangeForPeriode(periode, custom) {
   if (periode === "jour") {
     start.setHours(0, 0, 0, 0);
   } else if (periode === "deux_jours") {
-    start.setDate(start.getDate() - 1);
+    start.setDate(start.getDate() - 2);
     start.setHours(0, 0, 0, 0);
   } else if (periode === "semaine") {
     start.setDate(start.getDate() - 6);
@@ -5072,7 +5143,7 @@ export default function CRMPrototype() {
 
         {selected ? null : (
           <h1 className="text-2xl font-bold mb-6" style={{ fontFamily: "'Inter', sans-serif", fontWeight: 800, color: ink.ink900 }}>
-            {view === "commande_attente" ? "Commande en attente" : view === "livraison_attente" ? "Livraison en attente" : view === "a_relancer" ? "À relancer" : nav.find((n) => n.id === view)?.label}
+            {view === "commande_attente" ? "Commande en attente" : view === "livraison_attente" ? "Livraison en attente" : view === "commande_a_relancer" ? "Commande à relancer" : view === "clients_inactifs" ? "Clients inactifs" : nav.find((n) => n.id === view)?.label}
           </h1>
         )}
 
@@ -5160,8 +5231,14 @@ export default function CRMPrototype() {
                 statutForce={["Prêt / à livrer"]}
               />
             )}
-            {view === "a_relancer" && (isAdmin || onglets.includes("clients")) && (
-              <ARelancerListe clients={clients} reglages={reglages} onSelect={selectClient} />
+            {view === "commande_a_relancer" && (isAdmin || onglets.includes("clients")) && (
+              <ARelancerListe clients={clients} reglages={reglages} onSelect={selectClient} systeme="2" />
+            )}
+            {view === "clients_inactifs" && (isAdmin || onglets.includes("clients")) && (
+              <ARelancerListe clients={clients} reglages={reglages} onSelect={selectClient} systeme="1" />
+            )}
+            {view === "recherche_client" && (isAdmin || onglets.includes("clients")) && (
+              <RechercheClient clients={clients} onSelect={selectClient} />
             )}
             {view === "bilan" && isAdmin && <Bilan clients={clients} />}
             {view === "reglages" && isAdmin && (
