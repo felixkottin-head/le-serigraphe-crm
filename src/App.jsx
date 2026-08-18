@@ -294,7 +294,7 @@ const TEMPLATES_DEFAUT = [
 // ---------------------------------------------------------------------------
 // Données de démonstration
 // ---------------------------------------------------------------------------
-const AUJOURD_HUI = new Date("2026-07-31");
+const AUJOURD_HUI = new Date();
 
 const CLIENTS_INIT = [
   {
@@ -4496,6 +4496,20 @@ export default function CRMPrototype() {
     await storageSet("clients", next);
   }
 
+  // Repart de la version la plus fraîche possible du serveur juste avant d'écrire, pour éviter
+  // qu'un autre appareil connecté en même temps n'écrase les changements de celui-ci (et vice versa).
+  async function persistClientsSafe(updater) {
+    let base = clients;
+    try {
+      const fraiche = await storageGet("clients");
+      if (fraiche) base = fraiche;
+    } catch (e) {}
+    const next = updater(base);
+    setClients(next);
+    await storageSet("clients", next);
+    return next;
+  }
+
   async function persistReglages(next) {
     setReglages(next);
     await storageSet("reglages", next);
@@ -4545,8 +4559,8 @@ export default function CRMPrototype() {
     await storageSet("journal", next);
   }
 
-  function handleAdd(nouveauClient) {
-    persist([nouveauClient, ...clients]);
+  async function handleAdd(nouveauClient) {
+    await persistClientsSafe((base) => [nouveauClient, ...base]);
     logAction(`A ajouté le contact ${nouveauClient.nom} (${nouveauClient.id})`);
   }
 
@@ -4590,7 +4604,7 @@ export default function CRMPrototype() {
           setImportMessage({ type: "erreur", texte: "Aucun contact valide trouvé — vérifie qu'il y a bien une colonne 'Nom'." });
           return;
         }
-        persist([...nouveaux, ...clients]);
+        persistClientsSafe((base) => [...nouveaux, ...base]);
         logAction(`A importé ${nouveaux.length} contact${nouveaux.length > 1 ? "s" : ""} depuis un fichier`);
         setImportMessage({ type: "succes", texte: `${nouveaux.length} contact${nouveaux.length > 1 ? "s" : ""} importé${nouveaux.length > 1 ? "s" : ""} avec succès.` });
       } catch (err) {
@@ -4601,18 +4615,16 @@ export default function CRMPrototype() {
     reader.readAsBinaryString(file);
   }
 
-  function handleChangeStatut(id, statut) {
+  async function handleChangeStatut(id, statut) {
     const client = clients.find((c) => c.id === id);
-    const next = clients.map((c) => (c.id === id ? { ...c, statut } : c));
-    persist(next);
+    await persistClientsSafe((base) => base.map((c) => (c.id === id ? { ...c, statut } : c)));
     setSelected((s) => (s && s.id === id ? { ...s, statut } : s));
     logAction(`A changé le statut de ${client?.nom} → ${statut}`);
   }
 
-  function handleAddCommande(id, commande) {
+  async function handleAddCommande(id, commande) {
     const client = clients.find((c) => c.id === id);
-    const next = clients.map((c) => (c.id === id ? { ...c, commandes: [...c.commandes, commande] } : c));
-    persist(next);
+    const next = await persistClientsSafe((base) => base.map((c) => (c.id === id ? { ...c, commandes: [...c.commandes, commande] } : c)));
     const updated = next.find((c) => c.id === id);
     setSelected(updated);
     logAction(`A ajouté une commande pour ${client?.nom} (${fmt(commande.montant)})`);
@@ -4622,125 +4634,127 @@ export default function CRMPrototype() {
     logAction(`A envoyé une relance à ${client.nom} (${titreModele})`);
   }
 
-  function handleAddCout(clientId, commandeId, cout) {
+  async function handleAddCout(clientId, commandeId, cout) {
     const client = clients.find((c) => c.id === clientId);
     const cmd = client?.commandes.find((cm) => cm.id === commandeId);
-    const next = clients.map((c) =>
-      c.id === clientId
-        ? {
-            ...c,
-            commandes: c.commandes.map((cm) =>
-              cm.id === commandeId ? { ...cm, couts: [...(cm.couts || []), cout] } : cm
-            ),
-          }
-        : c
+    const next = await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? {
+              ...c,
+              commandes: c.commandes.map((cm) =>
+                cm.id === commandeId ? { ...cm, couts: [...(cm.couts || []), cout] } : cm
+              ),
+            }
+          : c
+      )
     );
-    persist(next);
     const updated = next.find((c) => c.id === clientId);
     setSelected(updated);
     logAction(`A ajouté un coût "${cout.description}" (${fmt(cout.montant)}) sur la commande "${cmd?.description}" de ${client?.nom}`);
   }
 
-  function handleSolderCommande(clientId, commandeId) {
+  async function handleSolderCommande(clientId, commandeId) {
     const client = clients.find((c) => c.id === clientId);
     const cmd = client?.commandes.find((cm) => cm.id === commandeId);
-    const next = clients.map((c) =>
-      c.id === clientId
-        ? { ...c, commandes: c.commandes.map((cm) => (cm.id === commandeId ? { ...cm, montantPaye: cm.montant } : cm)) }
-        : c
+    const next = await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? { ...c, commandes: c.commandes.map((cm) => (cm.id === commandeId ? { ...cm, montantPaye: cm.montant } : cm)) }
+          : c
+      )
     );
-    persist(next);
     setSelected(next.find((c) => c.id === clientId));
     logAction(`A marqué la commande "${cmd?.description}" de ${client?.nom} comme soldée`);
   }
 
-  function handleEditCommande(clientId, commandeId, updates) {
+  async function handleEditCommande(clientId, commandeId, updates) {
     const client = clients.find((c) => c.id === clientId);
-    const next = clients.map((c) =>
-      c.id === clientId
-        ? { ...c, commandes: c.commandes.map((cm) => (cm.id === commandeId ? { ...cm, ...updates } : cm)) }
-        : c
+    const next = await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? { ...c, commandes: c.commandes.map((cm) => (cm.id === commandeId ? { ...cm, ...updates } : cm)) }
+          : c
+      )
     );
-    persist(next);
     setSelected(next.find((c) => c.id === clientId));
     logAction(`A modifié la commande "${updates.description}" de ${client?.nom}`);
   }
 
-  function handleDeleteCommande(clientId, commandeId) {
+  async function handleDeleteCommande(clientId, commandeId) {
     const client = clients.find((c) => c.id === clientId);
     const cmd = client?.commandes.find((cm) => cm.id === commandeId);
-    const next = clients.map((c) =>
-      c.id === clientId ? { ...c, commandes: c.commandes.filter((cm) => cm.id !== commandeId) } : c
+    const next = await persistClientsSafe((base) =>
+      base.map((c) => (c.id === clientId ? { ...c, commandes: c.commandes.filter((cm) => cm.id !== commandeId) } : c))
     );
-    persist(next);
     setSelected(next.find((c) => c.id === clientId));
     logAction(`A supprimé la commande "${cmd?.description}" de ${client?.nom}`);
   }
 
-  function handleEditClient(clientId, updates) {
+  async function handleEditClient(clientId, updates) {
     const client = clients.find((c) => c.id === clientId);
-    const next = clients.map((c) => (c.id === clientId ? { ...c, ...updates } : c));
-    persist(next);
+    const next = await persistClientsSafe((base) => base.map((c) => (c.id === clientId ? { ...c, ...updates } : c)));
     setSelected(next.find((c) => c.id === clientId));
     logAction(`A modifié les infos de ${client?.nom} (${updates.nom})`);
   }
 
-  function handleDeleteClient(clientId) {
+  async function handleDeleteClient(clientId) {
     const client = clients.find((c) => c.id === clientId);
-    const next = clients.filter((c) => c.id !== clientId);
-    persist(next);
+    await persistClientsSafe((base) => base.filter((c) => c.id !== clientId));
     logAction(`A supprimé le client ${client?.nom} (${clientId})`);
   }
 
-  function handleValiderEtape(pole, client, commande, statutChoisi) {
+  async function handleValiderEtape(pole, client, commande, statutChoisi) {
     const statutActuel = POLE_STATUT[pole];
     const suivant = statutChoisi || STATUT_SUIVANT[statutActuel];
-    const next = clients.map((c) =>
-      c.id === client.id
-        ? { ...c, commandes: c.commandes.map((cmd) => (cmd.id === commande.id ? { ...cmd, statut: suivant } : cmd)) }
-        : c
+    await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === client.id
+          ? { ...c, commandes: c.commandes.map((cmd) => (cmd.id === commande.id ? { ...cmd, statut: suivant } : cmd)) }
+          : c
+      )
     );
-    persist(next);
     const verbe = pole === "livraison" ? "A livré la commande de" : `A terminé "${statutActuel}" pour`;
     logAction(`${verbe} ${client.nom} (${commande.description}) → ${suivant}`);
   }
 
-  function handleSetDeadlineEtape(clientId, valeur) {
+  async function handleSetDeadlineEtape(clientId, valeur) {
     const client = clients.find((c) => c.id === clientId);
-    const next = clients.map((c) => (c.id === clientId ? { ...c, deadlineEtape: valeur } : c));
-    persist(next);
+    await persistClientsSafe((base) => base.map((c) => (c.id === clientId ? { ...c, deadlineEtape: valeur } : c)));
     setSelected((s) => (s && s.id === clientId ? { ...s, deadlineEtape: valeur } : s));
     logAction(`A défini la deadline d'étape pour ${client?.nom}${valeur ? " : " + new Date(valeur).toLocaleString("fr-FR") : " (retirée)"}`);
   }
 
-  function handleImportVisuel(clientId, commandeId, dataUrl) {
+  async function handleImportVisuel(clientId, commandeId, dataUrl) {
     const client = clients.find((c) => c.id === clientId);
-    const next = clients.map((c) =>
-      c.id === clientId
-        ? {
-            ...c,
-            commandes: c.commandes.map((cmd) =>
-              cmd.id === commandeId ? { ...cmd, visuels: [...(cmd.visuels || []), dataUrl].slice(0, 10) } : cmd
-            ),
-          }
-        : c
+    await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? {
+              ...c,
+              commandes: c.commandes.map((cmd) =>
+                cmd.id === commandeId ? { ...cmd, visuels: [...(cmd.visuels || []), dataUrl].slice(0, 10) } : cmd
+              ),
+            }
+          : c
+      )
     );
-    persist(next);
     logAction(`A importé un visuel pour ${client?.nom}`);
   }
 
-  function handleSupprimerVisuel(clientId, commandeId, index) {
-    const next = clients.map((c) =>
-      c.id === clientId
-        ? {
-            ...c,
-            commandes: c.commandes.map((cmd) =>
-              cmd.id === commandeId ? { ...cmd, visuels: (cmd.visuels || []).filter((_, i) => i !== index) } : cmd
-            ),
-          }
-        : c
+  async function handleSupprimerVisuel(clientId, commandeId, index) {
+    await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? {
+              ...c,
+              commandes: c.commandes.map((cmd) =>
+                cmd.id === commandeId ? { ...cmd, visuels: (cmd.visuels || []).filter((_, i) => i !== index) } : cmd
+              ),
+            }
+          : c
+      )
     );
-    persist(next);
   }
 
   function handleAjouterObservation(texte) {
@@ -4875,6 +4889,18 @@ export default function CRMPrototype() {
       if (mesOnglets.includes(o)) return o;
     }
     return mesOnglets[0] || "missions";
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center" style={{ background: ink.canvas }}>
+        <GlobalStyle />
+        <div className="flex flex-col items-center gap-3">
+          <LogoMark size={72} />
+          <p className="text-sm" style={{ color: ink.ink600 }}>Chargement…</p>
+        </div>
+      </div>
+    );
   }
 
   if (!currentUser) {
