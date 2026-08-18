@@ -71,6 +71,7 @@ import {
   CheckCircle2,
   KeyRound,
   Trash2,
+  RefreshCw,
   ListChecks,
   Database,
   ArrowUpFromLine,
@@ -168,6 +169,7 @@ const STATUTS = [
   "Mr Félix",
   "CDC",
   "Conception",
+  "En correction",
   "En production",
   "Prêt / à livrer",
   "Livré",
@@ -180,6 +182,7 @@ const STATUT_COLOR = {
   "Mr Félix": ink.petrolDeep,
   CDC: ink.rouge,
   Conception: ink.bleu,
+  "En correction": "#C1440E",
   "En production": ink.petrol,
   "Prêt / à livrer": ink.petrolDeep,
   Livré: "#5FA85B",
@@ -208,6 +211,8 @@ const REGLAGES_DEFAUT = {
   fideliteNombreCommandes: 3,
   fidelitePeriodeMois: 6,
   dureeSessionMinutes: 60,
+  relanceDelaiReapparitionJours: 3,
+  relanceMaxNombre: 7,
 };
 
 const ADMIN_AUTH_DEFAUT = { nom: "Félix", motDePasse: "serigraphe2026" };
@@ -549,27 +554,47 @@ function MessageDuJour({ nom, pole = "commercial" }) {
 // Vue : Tableau de bord
 // ---------------------------------------------------------------------------
 // Système 1 — clients inactifs (relance générale : saluer, rappeler notre présence)
-function clientsARelancer(clients, seuil) {
+function clientsARelancer(clients, seuil, delaiReapparition = 0) {
   const clientsOnly = clients.filter((c) => c.type === "client");
   const statutsExclus = ["Conception", "En production", "Prêt / à livrer", "Livré", "Dossier à suivre", "En attente de validation"];
-  return clientsOnly.filter(
-    (c) =>
+  return clientsOnly.filter((c) => {
+    if (c.relanceArretee) return false;
+    if (c.derniereRelance && joursDepuis(c.derniereRelance) < delaiReapparition) return false;
+    return (
       joursDepuis(derniereActivite(c)) > seuil &&
       c.commandes.length > 0 &&
       !statutsExclus.includes(c.statut)
-  );
+    );
+  });
 }
 
-// Système 2 — commandes inactives : statut "Dossier à suivre" ou "En attente de validation" depuis trop longtemps
-function commandesARelancer(clients, seuil) {
+// Système 2 — commandes inactives : statut "Dossier à suivre" ou "En attente de validation" depuis trop longtemps.
+// Renvoie une liste à plat (client + commande précise), pour pouvoir relancer/archiver commande par commande.
+function commandesARelancer(clients, seuil, delaiReapparition = 0) {
   const clientsOnly = clients.filter((c) => c.type === "client");
   const statutsConcernes = ["Dossier à suivre", "En attente de validation"];
-  return clientsOnly.filter((c) => {
-    if (c.commandes && c.commandes.length > 0) {
-      return c.commandes.some((cmd) => statutsConcernes.includes(cmd.statut) && joursDepuis(cmd.date) > seuil);
-    }
-    return statutsConcernes.includes(c.statut) && joursDepuis(derniereActivite(c)) > seuil;
+  const resultats = [];
+  clientsOnly.forEach((c) => {
+    (c.commandes || []).forEach((cmd) => {
+      if (cmd.archivee) return;
+      if (cmd.derniereRelance && joursDepuis(cmd.derniereRelance) < delaiReapparition) return;
+      if (statutsConcernes.includes(cmd.statut) && joursDepuis(cmd.date) > seuil) {
+        resultats.push({ client: c, cmd });
+      }
+    });
   });
+  return resultats;
+}
+
+// Liste des commandes archivées (relances épuisées) — pour l'écran "Commandes archivées"
+function commandesArchivees(clients) {
+  const resultats = [];
+  clients.forEach((c) => {
+    (c.commandes || []).forEach((cmd) => {
+      if (cmd.archivee) resultats.push({ client: c, cmd });
+    });
+  });
+  return resultats;
 }
 
 // Utilitaire : liste des commandes (avec leur client) ayant l'un des statuts donnés
@@ -596,42 +621,119 @@ function telechargerTexte(nomFichier, contenu) {
   URL.revokeObjectURL(url);
 }
 
-function ARelancerListe({ clients, reglages, onSelect, systeme = "les-deux" }) {
+function ARelancerListe({ clients, reglages, onSelect, systeme, onMarquerRelanceClient, onMarquerRelanceCommande, onReactiverClient, onReactiverCommande }) {
   const seuil = reglages.seuilInactiviteJours;
   const seuilCommande = reglages.seuilCommandeInactiveJours;
-  const listeClients = systeme !== "2" ? clientsARelancer(clients, seuil) : [];
-  const listeCommandes = systeme !== "1" ? commandesARelancer(clients, seuilCommande) : [];
-  const idsCommandeInactive = new Set(listeCommandes.map((c) => c.id));
-  const map = new Map();
-  listeClients.forEach((c) => map.set(c.id, c));
-  listeCommandes.forEach((c) => map.set(c.id, c));
-  const liste = [...map.values()];
+  const delai = reglages.relanceDelaiReapparitionJours;
+  const max = reglages.relanceMaxNombre;
+  const [voirArchivees, setVoirArchivees] = useState(false);
+
+  const listeClients = systeme === "1" ? clientsARelancer(clients, seuil, delai) : [];
+  const listeCommandes = systeme === "2" ? commandesARelancer(clients, seuilCommande, delai) : [];
+  const archivees = systeme === "2" ? commandesArchivees(clients) : clients.filter((c) => c.relanceArretee);
 
   return (
-    <div className="rounded-3xl overflow-hidden" style={{ border: `1px solid ${ink.line}` }}>
-      {liste.length === 0 ? (
-        <p className="text-xs p-4" style={{ color: ink.ink600 }}>Rien à relancer pour le moment.</p>
-      ) : (
-        liste.map((c, i) => {
-          const commandeInactive = idsCommandeInactive.has(c.id);
-          const joursInactif = joursDepuis(derniereActivite(c));
-          return (
-            <div
-              key={c.id}
-              onClick={() => onSelect(c)}
-              className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer"
-              style={{ background: i % 2 ? ink.panel : "transparent", borderTop: i ? `1px solid ${ink.line}` : "none", borderLeft: `3px solid ${ink.rouge}` }}
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-semibold mb-1 truncate" style={{ color: ink.ink900 }}>{c.nom}</div>
-                <Tampon id={c.id} small color={ink.rouge} />
-              </div>
-              <div className="text-xs text-right shrink-0" style={{ color: ink.rouge }}>
-                {commandeInactive ? `commande inactive — ${joursInactif} j` : `client inactif — ${joursInactif} j`}
-              </div>
+    <div className="space-y-3">
+      <div className="rounded-3xl overflow-hidden" style={{ border: `1px solid ${ink.line}` }}>
+        {systeme === "1" &&
+          (listeClients.length === 0 ? (
+            <p className="text-xs p-4" style={{ color: ink.ink600 }}>Rien à relancer pour le moment.</p>
+          ) : (
+            listeClients.map((c, i) => {
+              const joursInactif = joursDepuis(derniereActivite(c));
+              const compte = c.relanceCount || 0;
+              return (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between gap-2 px-4 py-3"
+                  style={{ background: i % 2 ? ink.panel : "transparent", borderTop: i ? `1px solid ${ink.line}` : "none", borderLeft: `3px solid ${ink.rouge}` }}
+                >
+                  <div className="min-w-0 cursor-pointer" onClick={() => onSelect(c)}>
+                    <div className="text-sm font-semibold mb-1 truncate" style={{ color: ink.ink900 }}>{c.nom}</div>
+                    <Tampon id={c.id} small color={ink.rouge} />
+                    <div className="text-[11px] mt-1" style={{ color: ink.rouge }}>
+                      client inactif — {joursInactif} j · relancé {compte}/{max} fois
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onMarquerRelanceClient(c.id)}
+                    className="shrink-0 text-[11px] font-semibold px-2.5 py-2 rounded-2xl flex items-center gap-1"
+                    style={{ background: "#5FA85B", color: "#fff" }}
+                  >
+                    <Check size={12} /> Relance effectuée
+                  </button>
+                </div>
+              );
+            })
+          ))}
+
+        {systeme === "2" &&
+          (listeCommandes.length === 0 ? (
+            <p className="text-xs p-4" style={{ color: ink.ink600 }}>Rien à relancer pour le moment.</p>
+          ) : (
+            listeCommandes.map(({ client: c, cmd }, i) => {
+              const joursInactif = joursDepuis(cmd.date);
+              const compte = cmd.relanceCount || 0;
+              return (
+                <div
+                  key={cmd.id}
+                  className="flex items-center justify-between gap-2 px-4 py-3"
+                  style={{ background: i % 2 ? ink.panel : "transparent", borderTop: i ? `1px solid ${ink.line}` : "none", borderLeft: `3px solid ${ink.rouge}` }}
+                >
+                  <div className="min-w-0 cursor-pointer" onClick={() => onSelect(c)}>
+                    <div className="text-sm font-semibold mb-1 truncate" style={{ color: ink.ink900 }}>{c.nom} — {cmd.description}</div>
+                    <Tampon id={c.id} small color={ink.rouge} />
+                    <div className="text-[11px] mt-1" style={{ color: ink.rouge }}>
+                      commande inactive — {joursInactif} j · relancée {compte}/{max} fois
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onMarquerRelanceCommande(c.id, cmd.id)}
+                    className="shrink-0 text-[11px] font-semibold px-2.5 py-2 rounded-2xl flex items-center gap-1"
+                    style={{ background: "#5FA85B", color: "#fff" }}
+                  >
+                    <Check size={12} /> Relance effectuée
+                  </button>
+                </div>
+              );
+            })
+          ))}
+      </div>
+
+      {archivees.length > 0 && (
+        <div className="rounded-3xl overflow-hidden" style={{ border: `1px solid ${ink.line}` }}>
+          <button
+            onClick={() => setVoirArchivees((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3"
+            style={{ background: ink.panel }}
+          >
+            <span className="text-xs font-semibold" style={{ color: ink.ink600 }}>
+              {archivees.length} archivée{archivees.length > 1 ? "s" : ""} (relances épuisées)
+            </span>
+            <ChevronRight size={14} className={voirArchivees ? "rotate-90" : ""} style={{ color: ink.ink600 }} />
+          </button>
+          {voirArchivees && (
+            <div>
+              {systeme === "1"
+                ? archivees.map((c, i) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2 px-4 py-3" style={{ background: i % 2 ? ink.canvasDeep : "transparent", borderTop: `1px solid ${ink.line}` }}>
+                      <span className="text-xs" style={{ color: ink.ink600 }}>{c.nom}</span>
+                      <button onClick={() => onReactiverClient(c.id)} className="text-[11px] font-semibold px-2.5 py-1.5 rounded-2xl" style={{ background: ink.bleu, color: "#fff" }}>
+                        Réactiver
+                      </button>
+                    </div>
+                  ))
+                : archivees.map(({ client: c, cmd }, i) => (
+                    <div key={cmd.id} className="flex items-center justify-between gap-2 px-4 py-3" style={{ background: i % 2 ? ink.canvasDeep : "transparent", borderTop: `1px solid ${ink.line}` }}>
+                      <span className="text-xs" style={{ color: ink.ink600 }}>{c.nom} — {cmd.description}</span>
+                      <button onClick={() => onReactiverCommande(c.id, cmd.id)} className="text-[11px] font-semibold px-2.5 py-1.5 rounded-2xl" style={{ background: ink.bleu, color: "#fff" }}>
+                        Réactiver
+                      </button>
+                    </div>
+                  ))}
             </div>
-          );
-        })
+          )}
+        </div>
       )}
     </div>
   );
@@ -704,8 +806,8 @@ function Dashboard({ clients, reglages, currentUser, missions, setView }) {
   );
   const nouveauxCeMois = clients.filter((c) => dansLeMois(c.dateEntree)).length;
   const seuil = reglages.seuilInactiviteJours;
-  const clientsInactifsCount = clientsARelancer(clients, seuil).length;
-  const commandesInactivesCount = commandesARelancer(clients, reglages.seuilCommandeInactiveJours).length;
+  const clientsInactifsCount = clientsARelancer(clients, seuil, reglages.relanceDelaiReapparitionJours).length;
+  const commandesInactivesCount = commandesARelancer(clients, reglages.seuilCommandeInactiveJours, reglages.relanceDelaiReapparitionJours).length;
   const statutsExclusInactivite = ["Conception", "En production", "Prêt / à livrer", "Livré"];
   const inactifs = clientsOnly.filter(
     (c) => joursDepuis(derniereActivite(c)) > seuil && c.commandes.length > 0 && !statutsExclusInactivite.includes(c.statut)
@@ -1160,6 +1262,8 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
   const [fideliteNombreCommandes, setFideliteNombreCommandes] = useState(reglages.fideliteNombreCommandes);
   const [fidelitePeriodeMois, setFidelitePeriodeMois] = useState(reglages.fidelitePeriodeMois);
   const [dureeSessionMinutes, setDureeSessionMinutes] = useState(reglages.dureeSessionMinutes);
+  const [relanceDelaiReapparitionJours, setRelanceDelaiReapparitionJours] = useState(reglages.relanceDelaiReapparitionJours);
+  const [relanceMaxNombre, setRelanceMaxNombre] = useState(reglages.relanceMaxNombre);
   const [saved, setSaved] = useState(false);
   const [nouveauMdp, setNouveauMdp] = useState("");
   const [mdpSaved, setMdpSaved] = useState(false);
@@ -1173,6 +1277,8 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
       fideliteNombreCommandes: Number(fideliteNombreCommandes) || 3,
       fidelitePeriodeMois: Number(fidelitePeriodeMois) || 6,
       dureeSessionMinutes: Number(dureeSessionMinutes) || 60,
+      relanceDelaiReapparitionJours: Number(relanceDelaiReapparitionJours) || 3,
+      relanceMaxNombre: Number(relanceMaxNombre) || 7,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1800);
@@ -1234,6 +1340,39 @@ function Reglages({ reglages, onSave, adminAuth, onSaveAdminAuth, categories, on
             style={inputStyle}
           />
           <span className="text-sm" style={{ color: ink.ink600 }}>jours (ex. 3 = trois jours)</span>
+        </div>
+      </div>
+
+      <div className="rounded-3xl p-5" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: ink.ink900 }}>Cycle de relance</h3>
+        <p className="text-xs mb-3" style={{ color: ink.ink600 }}>
+          Une fois une relance marquée "effectuée", au bout de combien de jours elle réapparaît si le statut n'a toujours
+          pas changé — et le nombre maximum de relances avant d'archiver définitivement (le client reste, seule la
+          commande ou le suivi est mis de côté).
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Réapparition après (jours)</label>
+            <input
+              type="number"
+              min="1"
+              value={relanceDelaiReapparitionJours}
+              onChange={(e) => setRelanceDelaiReapparitionJours(e.target.value)}
+              className="w-full rounded-2xl px-3 py-2 text-sm"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium block mb-1" style={{ color: ink.ink600 }}>Nombre max. de relances</label>
+            <input
+              type="number"
+              min="1"
+              value={relanceMaxNombre}
+              onChange={(e) => setRelanceMaxNombre(e.target.value)}
+              className="w-full rounded-2xl px-3 py-2 text-sm"
+              style={inputStyle}
+            />
+          </div>
         </div>
       </div>
 
@@ -2407,8 +2546,11 @@ function Messages({ templates, onSave }) {
 function BilanGraphiste({ clients, journal, missions, currentUser, onAjouterBesoin, onAjouterDifficulte, isAdmin, onglets }) {
   const aujourdhui = new Date().toISOString().slice(0, 10);
   const mesActions = journal.filter((j) => j.auteur === currentUser.nom && j.date === aujourdhui);
-  const commandesTraitees = mesActions.filter((a) => a.action.startsWith('A terminé "Conception"'));
-  const commandesRestantes = commandesParStatut(clients, ["Conception"]);
+  const actionsCommande = mesActions.filter((a) => a.action.startsWith('A terminé "Conception"'));
+  // Un même dossier corrigé plusieurs fois dans la journée ne compte qu'une seule fois.
+  const detailsUniques = [...new Map(actionsCommande.map((a) => [extraireDetailCommande(a.action), a])).values()];
+  const commandesTraitees = detailsUniques;
+  const commandesRestantes = commandesParStatut(clients, ["Conception", "En correction"]);
   const [copie, setCopie] = useState(false);
 
   const mesMissions = missions.filter((m) => m.assigneA === currentUser.nom);
@@ -2534,7 +2676,8 @@ function MonBilan({ journal, currentUser, clients, reglages, missions, onAjouter
   );
   const enAttenteLivraison = commandesParStatut(clients || [], ["Prêt / à livrer"]).length;
   const aRelancer = reglages
-    ? clientsARelancer(clients || [], reglages.seuilInactiviteJours).length + commandesARelancer(clients || [], reglages.seuilCommandeInactiveJours).length
+    ? clientsARelancer(clients || [], reglages.seuilInactiviteJours, reglages.relanceDelaiReapparitionJours).length +
+      commandesARelancer(clients || [], reglages.seuilCommandeInactiveJours, reglages.relanceDelaiReapparitionJours).length
     : 0;
 
   const mesMissions = (missions || []).filter((m) => m.assigneA === currentUser.nom);
@@ -2648,12 +2791,19 @@ function MonBilan({ journal, currentUser, clients, reglages, missions, onAjouter
 // Vue : File d'attente d'un pôle (graphiste / production / livraison)
 // ---------------------------------------------------------------------------
 function FileAttente({ clients, pole, onValider, onImportVisuel, onSupprimerVisuel, currentUser }) {
-  const statutCible = POLE_STATUT[pole];
+  const [sousOnglet, setSousOnglet] = useState("conception");
+  const statutCible = pole === "graphiste" ? (sousOnglet === "conception" ? "Conception" : "En correction") : POLE_STATUT[pole];
   const items = clients.flatMap((c) =>
     (c.commandes || [])
       .filter((cmd) => cmd.statut === statutCible)
       .map((cmd) => ({ client: c, cmd }))
   );
+  const nbConception = pole === "graphiste"
+    ? clients.flatMap((c) => (c.commandes || []).filter((cmd) => cmd.statut === "Conception")).length
+    : 0;
+  const nbCorrection = pole === "graphiste"
+    ? clients.flatMap((c) => (c.commandes || []).filter((cmd) => cmd.statut === "En correction")).length
+    : 0;
 
   function handleFichier(clientId, commandeId, e) {
     const file = e.target.files?.[0];
@@ -2667,6 +2817,32 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, onSupprimerVisu
     <div className="space-y-3">
       {(pole === "production" || pole === "livraison") && currentUser && (
         <MessageDuJour nom={currentUser.nom} pole={pole} />
+      )}
+      {pole === "graphiste" && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setSousOnglet("conception")}
+            className="flex-1 rounded-2xl py-2 text-xs font-semibold"
+            style={{
+              background: sousOnglet === "conception" ? ink.bleu : ink.panel,
+              color: sousOnglet === "conception" ? "#fff" : ink.ink600,
+              border: `1px solid ${sousOnglet === "conception" ? ink.bleu : ink.line}`,
+            }}
+          >
+            Conception ({nbConception})
+          </button>
+          <button
+            onClick={() => setSousOnglet("correction")}
+            className="flex-1 rounded-2xl py-2 text-xs font-semibold"
+            style={{
+              background: sousOnglet === "correction" ? "#C1440E" : ink.panel,
+              color: sousOnglet === "correction" ? "#fff" : ink.ink600,
+              border: `1px solid ${sousOnglet === "correction" ? "#C1440E" : ink.line}`,
+            }}
+          >
+            En correction ({nbCorrection})
+          </button>
+        </div>
       )}
       {items.length === 0 ? (
         <div className="rounded-3xl p-6 text-center" style={{ background: ink.panel, border: `1px solid ${ink.line}` }}>
@@ -2776,6 +2952,14 @@ function FileAttente({ clients, pole, onValider, onImportVisuel, onSupprimerVisu
                     style={{ background: ink.petrol, color: "#fff" }}
                   >
                     <CheckCircle2 size={14} /> Envoyer en production
+                  </button>
+                  <button
+                    onClick={() => onValider(c, cmd, "En correction")}
+                    className="shrink-0 flex items-center justify-center rounded-2xl py-2.5 px-3 text-xs font-semibold"
+                    style={{ background: "#C1440E", color: "#fff" }}
+                    title="En correction"
+                  >
+                    <RefreshCw size={14} />
                   </button>
                 </div>
               ) : (
@@ -2899,11 +3083,12 @@ function GlobalStyle() {
 // Vue : Tableau de bord du pôle graphique
 // ---------------------------------------------------------------------------
 function GraphisteDashboard({ clients, journal, currentUser, setView }) {
-  const enAttente = commandesParStatut(clients, ["Conception"]);
+  const enAttente = commandesParStatut(clients, ["Conception", "En correction"]);
   const aujourdhui = new Date().toISOString().slice(0, 10);
-  const traiteesAujourdhui = journal.filter(
+  const actionsTraitees = journal.filter(
     (j) => j.auteur === currentUser.nom && j.date === aujourdhui && j.action.startsWith('A terminé "Conception"')
-  ).length;
+  );
+  const traiteesAujourdhui = new Set(actionsTraitees.map((a) => extraireDetailCommande(a.action))).size;
 
   return (
     <div className="space-y-5 pb-4">
@@ -4468,7 +4653,10 @@ export default function CRMPrototype() {
   }
 
   const clientsOnly = clients.filter((c) => c.type === "client");
-  const inactifsUrgents = [...clientsARelancer(clients, reglages.seuilInactiviteJours), ...commandesARelancer(clients, reglages.seuilCommandeInactiveJours)];
+  const inactifsUrgents = [
+    ...clientsARelancer(clients, reglages.seuilInactiviteJours, reglages.relanceDelaiReapparitionJours),
+    ...commandesARelancer(clients, reglages.seuilCommandeInactiveJours, reglages.relanceDelaiReapparitionJours),
+  ];
 
   const [maintenantTick, setMaintenantTick] = useState(() => Date.now());
   useEffect(() => {
@@ -4579,6 +4767,63 @@ export default function CRMPrototype() {
     setClients(next);
     await storageSet("clients", next);
     return next;
+  }
+
+  async function handleMarquerRelanceClient(clientId) {
+    const client = clients.find((c) => c.id === clientId);
+    const compte = (client?.relanceCount || 0) + 1;
+    const max = reglages.relanceMaxNombre || 7;
+    await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? { ...c, relanceCount: compte, derniereRelance: AUJOURD_HUI.toISOString().slice(0, 10), relanceArretee: compte >= max }
+          : c
+      )
+    );
+    logAction(`A relancé ${client?.nom} (${compte}/${max})${compte >= max ? " — plafond atteint, arrêt des relances" : ""}`);
+  }
+
+  async function handleReactiverClient(clientId) {
+    const client = clients.find((c) => c.id === clientId);
+    await persistClientsSafe((base) =>
+      base.map((c) => (c.id === clientId ? { ...c, relanceArretee: false, relanceCount: 0, derniereRelance: null } : c))
+    );
+    logAction(`A réactivé les relances pour ${client?.nom}`);
+  }
+
+  async function handleMarquerRelanceCommande(clientId, commandeId) {
+    const client = clients.find((c) => c.id === clientId);
+    const cmd = client?.commandes.find((cm) => cm.id === commandeId);
+    const compte = (cmd?.relanceCount || 0) + 1;
+    const max = reglages.relanceMaxNombre || 7;
+    await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? {
+              ...c,
+              commandes: c.commandes.map((cm) =>
+                cm.id === commandeId
+                  ? { ...cm, relanceCount: compte, derniereRelance: AUJOURD_HUI.toISOString().slice(0, 10), archivee: compte >= max }
+                  : cm
+              ),
+            }
+          : c
+      )
+    );
+    logAction(`A relancé la commande "${cmd?.description}" de ${client?.nom} (${compte}/${max})${compte >= max ? " — plafond atteint, archivée en commande inactive" : ""}`);
+  }
+
+  async function handleReactiverCommande(clientId, commandeId) {
+    const client = clients.find((c) => c.id === clientId);
+    const cmd = client?.commandes.find((cm) => cm.id === commandeId);
+    await persistClientsSafe((base) =>
+      base.map((c) =>
+        c.id === clientId
+          ? { ...c, commandes: c.commandes.map((cm) => (cm.id === commandeId ? { ...cm, archivee: false, relanceCount: 0, derniereRelance: null } : cm)) }
+          : c
+      )
+    );
+    logAction(`A réactivé la commande "${cmd?.description}" de ${client?.nom}`);
   }
 
   async function persistReglages(next) {
@@ -5232,10 +5477,24 @@ export default function CRMPrototype() {
               />
             )}
             {view === "commande_a_relancer" && (isAdmin || onglets.includes("clients")) && (
-              <ARelancerListe clients={clients} reglages={reglages} onSelect={selectClient} systeme="2" />
+              <ARelancerListe
+                clients={clients}
+                reglages={reglages}
+                onSelect={selectClient}
+                systeme="2"
+                onMarquerRelanceCommande={handleMarquerRelanceCommande}
+                onReactiverCommande={handleReactiverCommande}
+              />
             )}
             {view === "clients_inactifs" && (isAdmin || onglets.includes("clients")) && (
-              <ARelancerListe clients={clients} reglages={reglages} onSelect={selectClient} systeme="1" />
+              <ARelancerListe
+                clients={clients}
+                reglages={reglages}
+                onSelect={selectClient}
+                systeme="1"
+                onMarquerRelanceClient={handleMarquerRelanceClient}
+                onReactiverClient={handleReactiverClient}
+              />
             )}
             {view === "recherche_client" && (isAdmin || onglets.includes("clients")) && (
               <RechercheClient clients={clients} onSelect={selectClient} />
